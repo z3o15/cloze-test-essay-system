@@ -1,0 +1,87 @@
+:root {
+  /* 移动端基础变量 */
+  --color-primary: #1989fa;
+  --color-primary-600: #1677e6;
+  --color-text: #1f2937;
+  --color-text-secondary: #6b7280;
+  --color-border: #e5e7eb;
+  --color-bg: #ffffff;
+  --color-bg-soft: #f8fafc;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --safe-top: env(safe-area-inset-top);
+  --safe-right: env(safe-area-inset-right);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-left: env(safe-area-inset-left);
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg-soft);
+  color: var(--color-text);
+  -webkit-tap-highlight-color: rgba(0,0,0,0);
+}
+
+/* 链接 */
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+a:hover { opacity: .9; }
+
+/* 可触控尺寸与焦点可见性 */
+button, input, textarea, select {
+  font-family: inherit;
+  font-size: 16px; /* 防 iOS 触发缩放 */
+}
+
+button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: #fff;
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+}
+
+/* 容器通用约束 */
+#app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: calc(8px + var(--safe-top)) 12px calc(12px + var(--safe-bottom));
+}
+
+/* 媒体通用规则 */
+img, video { max-width: 100%; height: auto; display: block; }
+
+/* 图片懒加载的通用占位样式，可在组件中添加 loading="lazy" */
+.img-fluid { width: 100%; height: auto; display: block; border-radius: var(--radius-sm); }
+
+/* 深色模式 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-text: #e5e7eb;
+    --color-text-secondary: #9ca3af;
+    --color-border: #374151;
+    --color-bg: #0b1220;
+    --color-bg-soft: #0f172a;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+  }
+  body { background: var(--color-bg-soft); }
+  button { background: #111827; color: var(--color-text); border-color: #1f2937; }
+  #app { background: var(--color-bg); }
+}
