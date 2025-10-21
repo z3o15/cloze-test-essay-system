@@ -1,7 +1,20 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
 import crypto from 'crypto';
 import { kv } from '@vercel/kv';
+
+// EdgeOne Pages兼容的请求和响应类型
+type Request = {
+  method: string;
+  headers: Record<string, string | string[]>;
+  body: any;
+};
+
+type Response = {
+  status: (code: number) => Response;
+  json: (data: any) => Promise<void>;
+  end: () => Promise<void>;
+  setHeader: (key: string, value: string) => void;
+};
 
 // 从环境变量获取API密钥，而不是硬编码
 const VOLCANO_API_KEY = process.env.VOLCANO_API_KEY;
@@ -128,14 +141,14 @@ async function cacheWordResult(word: string, withContext: boolean, wordInfo: Wor
 }
 
 export default async function handler(
-  request: VercelRequest,
-  response: VercelResponse
+  request: Request,
+  response: Response
 ) {
   try {
     // 设置CORS头
-    response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    response.setHeader('Access-Control-Allow-Origin', '*')
+    response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
     // 处理预检请求
     if (request.method === 'OPTIONS') {
@@ -148,7 +161,8 @@ export default async function handler(
     }
 
     // 获取请求体数据
-    const { word, contextSentence, useBaidu = true, skipCache = false } = request.body;
+    const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
+    const { word, contextSentence, useBaidu = true, skipCache = false } = body;
     
     if (!word || typeof word !== 'string') {
       return response.status(400).json({ error: '单词内容不能为空' });

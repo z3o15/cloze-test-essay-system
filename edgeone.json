@@ -1,0 +1,46 @@
+{
+  "version": "1",
+  "build": {
+    "command": "npm run build",
+    "outputDir": "dist"
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "POST, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type"
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "VOLCANO_API_KEY": "${VOLCANO_API_KEY}",
+    "VOLCANO_API_URL": "${VOLCANO_API_URL}",
+    "BAIDU_APP_ID": "${BAIDU_APP_ID}",
+    "BAIDU_SECRET_KEY": "${BAIDU_SECRET_KEY}",
+    "KV_URL": "${KV_URL}",
+    "KV_REST_API_URL": "${KV_REST_API_URL}",
+    "KV_REST_API_TOKEN": "${KV_REST_API_TOKEN}",
+    "KV_REST_API_READ_ONLY_TOKEN": "${KV_REST_API_READ_ONLY_TOKEN}"
+  }
+}
