@@ -5,9 +5,9 @@ import { kv } from '@vercel/kv';
 // 从环境变量获取API密钥
 const VOLCANO_API_KEY = process.env.VOLCANO_API_KEY || '';
 const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
-const BAIDU_APP_ID = process.env.BAIDU_APP_ID || '';
-const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY || '';
-const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
+// const BAIDU_APP_ID = process.env.BAIDU_APP_ID || ''; // 已注释，仅使用腾讯翻译官和火山翻译
+// const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY || ''; // 已注释，仅使用腾讯翻译官和火山翻译
+// const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate'; // 已注释，仅使用腾讯翻译官和火山翻译
 
 // 定义翻译结果接口
 export interface TranslationResult {
@@ -78,7 +78,8 @@ const callTencentTranslateAPI = async (
   }
 };
 
-// 调用百度翻译API（保留作为备用）
+// 调用百度翻译API（已注释，仅使用腾讯翻译官和火山翻译）
+/*
 const callBaiduTranslateAPI = async (
   text: string,
   from: string = 'auto',
@@ -120,6 +121,7 @@ const callBaiduTranslateAPI = async (
     throw error;
   }
 };
+*/
 
 // 调用火山AI接口
 const callVolcanoAPI = async (
@@ -255,11 +257,9 @@ export default async function onRequest(context: any) {
       body = {};
     }
     
-    const { text, from = 'auto', to = 'zh', useTencent = true, useBaidu, skipCache = false } = body;
+    const { text, from = 'auto', to = 'zh', skipCache = false } = body;
     
-    // 为向后兼容，支持useBaidu参数，但优先使用useTencent
-    const finalUseTencent = useTencent || (useBaidu === undefined);
-    const finalUseBaidu = useBaidu !== false;
+    // 仅使用腾讯翻译官和火山翻译，移除百度翻译相关参数
     
     // 参数验证
     if (!text || typeof text !== 'string') {
@@ -309,7 +309,7 @@ export default async function onRequest(context: any) {
     const TENCENT_APP_ID = process.env.TENCENT_APP_ID || '';
     const TENCENT_APP_KEY = process.env.TENCENT_APP_KEY || '';
     
-    if ((useTencent || !useBaidu) && TENCENT_APP_ID && TENCENT_APP_KEY) {
+    if (TENCENT_APP_ID && TENCENT_APP_KEY) {
       try {
         translatedText = await callTencentTranslateAPI(text, from, to);
         provider = 'tencent';
@@ -331,38 +331,12 @@ export default async function onRequest(context: any) {
           }
         });
       } catch (tencentError) {
-        console.error('腾讯翻译API调用失败，尝试使用百度翻译:', tencentError);
-        // 继续使用百度翻译作为备用
-      }
+      console.error('腾讯翻译API调用失败:', tencentError);
+      // 继续使用火山AI作为备用
     }
+  }
 
-    // 备用使用百度翻译API
-    if (useBaidu && BAIDU_APP_ID && BAIDU_SECRET_KEY) {
-      try {
-        translatedText = await callBaiduTranslateAPI(text, from, to);
-        provider = 'baidu';
-        
-        // 缓存结果
-        await cacheTranslationResult(text, from, to, translatedText);
-        
-        return new Response(JSON.stringify({
-          translatedText,
-          from,
-          to,
-          provider,
-          fromCache: false
-        }), {
-          status: 200,
-          headers: {
-            ...headers,
-            'Content-Type': 'application/json'
-          }
-        });
-      } catch (baiduError) {
-        console.error('百度翻译API调用失败，尝试使用火山AI:', baiduError);
-        // 继续使用火山AI作为备用
-      }
-    }
+  // 移除百度翻译API相关代码
 
     // 使用火山AI接口翻译
     provider = 'volcano';

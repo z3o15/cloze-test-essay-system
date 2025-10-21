@@ -140,39 +140,118 @@ const LOCAL_WORD_QUERY_API = '/api/word-query';
 export const callLocalWordQueryAPI = async (word: string, contextSentence?: string, forceRefresh: boolean = false): Promise<WordInfo> => {
   try {
     console.log('调用本地API代理查询单词(GET方式):', word);
+    console.log('请求参数:', { word, contextSentence, forceRefresh });
+    
+    // 确保word参数被正确编码
+    const encodedWord = encodeURIComponent(word);
+    console.log('编码后的单词:', encodedWord);
     
     // 直接使用GET请求，符合服务器要求
     const response = await api.get(LOCAL_WORD_QUERY_API, {
       params: {
-        word,
+        word: encodedWord,
         contextSentence,
         forceRefresh,
         useBaidu: true // 优先使用百度翻译API
       },
-      timeout: 5000 // 设置超时时间
+      timeout: 8000 // 增加超时时间到8秒
     });
     
-    // 检查响应
-    if (response.data) {
-      // 确保返回的对象符合WordInfo接口
-      const wordInfo: WordInfo = {
-        phonetic: response.data.phonetic || '',
-        definitions: response.data.definitions || ['未找到释义'],
-        examples: response.data.examples || []
-      };
+    // 添加详细的响应日志，帮助调试
+    console.log('API原始响应内容:', response.data);
+    console.log('响应数据类型:', typeof response.data);
+    console.log('响应结构检查 - 是否有phonetic字段:', 'phonetic' in response.data);
+    console.log('响应结构检查 - 是否有definitions字段:', 'definitions' in response.data);
+    console.log('响应结构检查 - 是否有examples字段:', 'examples' in response.data);
+    
+    // 初始化结果对象
+    const wordInfo: WordInfo = {
+      phonetic: '',
+      definitions: ['未找到释义'],
+      examples: []
+    };
+    
+    // 验证并处理响应数据
+    if (response.data && typeof response.data === 'object') {
+      // 处理音标
+      if (typeof response.data.phonetic === 'string') {
+        wordInfo.phonetic = response.data.phonetic.trim();
+        console.log('处理后的音标:', wordInfo.phonetic);
+      }
       
-      console.log('GET请求成功');
-      return wordInfo;
+      // 处理释义 - 增强的数据验证
+      if (Array.isArray(response.data.definitions)) {
+        const validDefinitions = response.data.definitions
+          .filter(def => typeof def === 'string' && def.trim().length > 0)
+          .map(def => def.trim());
+        
+        if (validDefinitions.length > 0) {
+          wordInfo.definitions = validDefinitions;
+        } else {
+          console.warn('未找到有效释义，使用默认值');
+          // 根据单词特性生成更具体的默认释义
+          if (word.length > 1) {
+            wordInfo.definitions = [`考研核心词汇: ${word}`];
+          }
+        }
+      } else if (typeof response.data.definitions === 'string') {
+        // 如果definitions是字符串，转换为数组
+        wordInfo.definitions = [response.data.definitions.trim()];
+      }
+      
+      // 处理例句 - 增强的数据验证
+      if (Array.isArray(response.data.examples)) {
+        const validExamples = response.data.examples
+          .filter(example => typeof example === 'string' && example.trim().length > 5)
+          .map(example => example.trim());
+        
+        if (validExamples.length > 0) {
+          wordInfo.examples = validExamples;
+        } else {
+          console.warn('未找到有效例句，准备添加默认例句');
+          // 添加默认例句
+          wordInfo.examples = [
+            `这是包含单词"${word}"的例句。`,
+            `${word}在考研英语中是常见词汇。`
+          ];
+        }
+      }
+      
+      // 检查是否有provider信息
+      if (response.data.provider) {
+        console.log('数据来源:', response.data.provider);
+      }
+      
+      // 检查是否来自缓存
+      if (response.data.fromCache) {
+        console.log('数据来自缓存');
+      }
     } else {
-      console.error('本地API代理响应格式错误:', response.data);
-      return {
-        phonetic: '',
-        definitions: ['未找到释义'],
-        examples: []
-      };
+      console.error('本地API代理响应格式错误，不是有效的对象:', response.data);
+      // 返回带有错误信息的默认结果
+      wordInfo.definitions = [`查询单词"${word}"时返回的数据格式错误`];
     }
+    
+    console.log('GET请求处理完成，最终单词信息:', wordInfo);
+    return wordInfo;
+  } catch (error: any) {
+    console.error('本地API代理调用失败:', error);
+    console.error('错误详情:', error.response?.data || error.message || error);
+    
+    // 返回友好的错误信息
+    const errorMessage = error.response?.data?.error || 
+                        error.message || 
+                        '网络请求失败';
+    
+    return {
+      phonetic: '',
+      definitions: [`查询失败: ${errorMessage}`],
+      examples: [`请检查网络连接或稍后重试单词"${word}"的查询`]
+    };
+  }
   } catch (error) {
     console.error('本地API代理调用失败:', error);
+    console.error('错误详情:', error.response?.data || error.message || error);
     throw error;
   }
 };
@@ -214,15 +293,18 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
     
     // 3. 使用本地API代理（会自动优先使用百度翻译API）
     try {
+      console.log('准备调用本地API代理查询单词:', normalizedWord);
       const wordInfo = await callLocalWordQueryAPI(normalizedWord, contextSentence, forceRefresh);
       
       // 保存到缓存
+      console.log('准备更新单词缓存:', normalizedWord);
       wordCache.set(normalizedWord, {
         data: wordInfo,
         timestamp: Date.now()
       });
+      console.log('单词缓存更新成功:', normalizedWord);
       
-      console.log('本地API代理查询成功，结果:', wordInfo);
+      console.log('本地API代理查询成功，最终结果:', wordInfo);
       return wordInfo;
     } catch (localApiError) {
       console.error('本地API代理调用失败，尝试使用备用方案:', localApiError);

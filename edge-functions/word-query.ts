@@ -12,9 +12,9 @@ export interface WordInfo {
 // 从环境变量获取API密钥
 const VOLCANO_API_KEY = process.env.VOLCANO_API_KEY || '';
 const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
-const BAIDU_APP_ID = process.env.BAIDU_APP_ID || '';
-const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY || '';
-const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
+// const BAIDU_APP_ID = process.env.BAIDU_APP_ID || ''; // 已注释，仅使用腾讯翻译官和火山翻译
+// const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY || ''; // 已注释，仅使用腾讯翻译官和火山翻译
+// const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/vip/translate'; // 已注释，仅使用腾讯翻译官和火山翻译
 
 // 调用腾讯词典API获取单词信息
 const callTencentDictAPI = async (word: string): Promise<WordInfo> => {
@@ -77,7 +77,8 @@ const callTencentDictAPI = async (word: string): Promise<WordInfo> => {
   }
 };
 
-// 调用百度翻译API的函数（保留作为备用）
+// 调用百度翻译API的函数（已注释，仅使用腾讯翻译官和火山翻译）
+/*
 const callBaiduTranslateAPI = async (word: string): Promise<WordInfo> => {
   if (!BAIDU_APP_ID || !BAIDU_SECRET_KEY) {
     throw new Error('百度翻译API密钥未配置');
@@ -121,6 +122,7 @@ const callBaiduTranslateAPI = async (word: string): Promise<WordInfo> => {
     throw error;
   }
 };
+*/
 
 // 调用火山AI API的函数
 const callVolcanoAPI = async (messages: any[]): Promise<string> => {
@@ -273,66 +275,162 @@ export default async function onRequest(context: any) {
     word: string; 
     contextSentence?: string; 
     forceRefresh?: boolean; 
-    useBaidu?: boolean 
+    debug?: boolean
   }) {
-    const { word, contextSentence, forceRefresh = false, useBaidu = true } = params;
+    const { word, contextSentence, forceRefresh = false, debug = false } = params;
+    const startTime = Date.now();
+    
+    // 添加详细的调试日志，包含时间戳
+    console.log(`[${new Date().toISOString()}] handleWordQuery参数:`, { 
+      word, 
+      contextSentence: contextSentence ? `${contextSentence.substring(0, 30)}...` : null, 
+      forceRefresh,
+      debug 
+    });
+    
+    // 环境变量状态检查
+    const hasTencentKey = !!process.env.TENCENT_APP_ID && !!process.env.TENCENT_APP_KEY;
+    // const hasBaiduKey = !!BAIDU_APP_ID && !!BAIDU_SECRET_KEY;
+    const hasVolcanoKey = !!VOLCANO_API_KEY;
+    
+    console.log(`[${new Date().toISOString()}] 环境变量状态 - 腾讯:${hasTencentKey}, 火山:${hasVolcanoKey}`);
+    
+    // 验证单词参数
+    if (!word || typeof word !== 'string' || word.trim().length === 0) {
+      console.error(`[${new Date().toISOString()}] 无效的单词参数:`, word);
+      return {
+        phonetic: '',
+        definitions: ['无效的单词参数'],
+        examples: [],
+        error: '单词参数不能为空',
+        provider: 'error',
+        timestamp: new Date().toISOString(),
+        processingTime: Date.now() - startTime
+      };
+    }
     
     // 标准化单词
     const normalizedWord = word.toLowerCase().trim();
+    console.log(`[${new Date().toISOString()}] 标准化后的单词: "${normalizedWord}"`);
     
     // 尝试从缓存获取（除非强制刷新）
     if (!forceRefresh) {
+      console.log(`[${new Date().toISOString()}] 检查缓存...`);
       const cachedResult = await getWordFromCache(normalizedWord, !!contextSentence);
       if (cachedResult) {
+        console.log(`[${new Date().toISOString()}] 缓存命中! 缓存数据:`, cachedResult);
         return {
           ...cachedResult,
-          fromCache: true
+          fromCache: true,
+          timestamp: new Date().toISOString(),
+          processingTime: Date.now() - startTime
         };
       }
+      console.log(`[${new Date().toISOString()}] 缓存未命中`);
+    } else {
+      console.log(`[${new Date().toISOString()}] 强制刷新模式，跳过缓存检查`);
     }
     
-    let wordInfo: WordInfo;
-    let provider: string;
+    let wordInfo: WordInfo = null;
+    let provider: string = 'unknown';
+    const apiErrors: string[] = [];
+    let apiAttempted = 0;
     
     // 优先使用腾讯词典API
-    if (process.env.TENCENT_APP_ID && process.env.TENCENT_APP_KEY) {
+    if (hasTencentKey) {
+      apiAttempted++;
+      console.log(`[${new Date().toISOString()}] 尝试使用腾讯词典API (${apiAttempted}/3)...`);
       try {
+        const tencentStart = Date.now();
         wordInfo = await callTencentDictAPI(normalizedWord);
-        provider = 'tencent';
-        // 缓存结果
-        await cacheWordResult(normalizedWord, !!contextSentence, wordInfo, provider);
-        return {
-          ...wordInfo,
-          provider,
-          fromCache: false
-        };
+        const tencentEnd = Date.now();
+        
+        // 验证API返回的数据
+        if (wordInfo && (wordInfo.phonetic || (wordInfo.definitions && wordInfo.definitions.length > 0))) {
+          provider = 'tencent';
+          console.log(`[${new Date().toISOString()}] 腾讯词典API调用成功，耗时: ${tencentEnd - tencentStart}ms`);
+          console.log(`[${new Date().toISOString()}] 腾讯API返回数据:`, wordInfo);
+          
+          // 缓存结果
+          try {
+            await cacheWordResult(normalizedWord, !!contextSentence, wordInfo, provider);
+            console.log(`[${new Date().toISOString()}] 缓存保存成功`);
+          } catch (cacheError) {
+            console.warn(`[${new Date().toISOString()}] 缓存保存失败:`, cacheError);
+          }
+          
+          return {
+            ...wordInfo,
+            provider,
+            fromCache: false,
+            timestamp: new Date().toISOString(),
+            processingTime: Date.now() - startTime
+          };
+        } else {
+          console.warn(`[${new Date().toISOString()}] 腾讯词典API返回数据不完整，继续尝试`);
+          apiErrors.push('腾讯API返回空数据');
+          wordInfo = null;
+        }
       } catch (tencentError) {
-        console.error('腾讯词典API调用失败，尝试使用百度翻译API:', tencentError);
-        // 继续使用百度翻译API作为备用
+        console.error(`[${new Date().toISOString()}] 腾讯词典API调用失败:`, tencentError);
+        apiErrors.push(`腾讯API错误: ${tencentError instanceof Error ? tencentError.message : String(tencentError)}`);
+        wordInfo = null;
       }
     }
     
-    // 使用百度翻译API作为备用
-    if (useBaidu && BAIDU_APP_ID && BAIDU_SECRET_KEY) {
+    // 使用百度翻译API作为备用（已注释，仅使用腾讯翻译官和火山翻译）
+    /*
+    if (!wordInfo && useBaidu && hasBaiduKey) {
+      apiAttempted++;
+      console.log(`[${new Date().toISOString()}] 尝试使用百度翻译API (${apiAttempted}/3)...`);
       try {
+        const baiduStart = Date.now();
         wordInfo = await callBaiduTranslateAPI(normalizedWord);
-        provider = 'baidu';
-        // 缓存结果
-        await cacheWordResult(normalizedWord, !!contextSentence, wordInfo, provider);
-        return {
-          ...wordInfo,
-          provider,
-          fromCache: false
-        };
+        const baiduEnd = Date.now();
+        
+        // 验证API返回的数据
+        if (wordInfo && (wordInfo.phonetic || (wordInfo.definitions && wordInfo.definitions.length > 0))) {
+          provider = 'baidu';
+          console.log(`[${new Date().toISOString()}] 百度翻译API调用成功，耗时: ${baiduEnd - baiduStart}ms`);
+          console.log(`[${new Date().toISOString()}] 百度API返回数据:`, wordInfo);
+          
+          // 缓存结果
+          try {
+            await cacheWordResult(normalizedWord, !!contextSentence, wordInfo, provider);
+            console.log(`[${new Date().toISOString()}] 缓存保存成功`);
+          } catch (cacheError) {
+            console.warn(`[${new Date().toISOString()}] 缓存保存失败:`, cacheError);
+          }
+          
+          return {
+            ...wordInfo,
+            provider,
+            fromCache: false,
+            timestamp: new Date().toISOString(),
+            processingTime: Date.now() - startTime
+          };
+        } else {
+          console.warn(`[${new Date().toISOString()}] 百度翻译API返回数据不完整，继续尝试`);
+          apiErrors.push('百度API返回空数据');
+          wordInfo = null;
+        }
       } catch (baiduError) {
-        console.error('百度翻译API调用失败，尝试使用火山AI:', baiduError);
-        // 继续使用火山AI作为备用
+        console.error(`[${new Date().toISOString()}] 百度翻译API调用失败:`, baiduError);
+        apiErrors.push(`百度API错误: ${baiduError instanceof Error ? baiduError.message : String(baiduError)}`);
+        wordInfo = null;
       }
     }
+    */
+    // 已移除百度翻译API相关代码，仅使用腾讯翻译官和火山翻译
     
     // 使用火山AI接口查询单词信息
-    provider = 'volcano';
-    let prompt = `请提供单词"${normalizedWord}"的以下信息：\n1. 音标\n2. 考研核心释义（优先显示常考含义）\n`;
+      if (!wordInfo && hasVolcanoKey) {
+        apiAttempted++;
+        console.log(`[${new Date().toISOString()}] 尝试使用火山AI接口 (${apiAttempted}/3)...`);
+        provider = 'volcano';
+        const volcanoStart = Date.now();
+        
+        let prompt = `请提供单词"${normalizedWord}"的以下信息：\n1. 音标\n2. 考研核心释义（优先显示常考含义）\n`;
     
     if (contextSentence) {
       prompt += `3. 在句子"${contextSentence}"中的例句分析\n`;
@@ -340,36 +438,167 @@ export default async function onRequest(context: any) {
     
     prompt += '请使用以下格式返回，不要添加其他信息：\n音标:/phonetic/\n释义:definition1,definition2,...\n例句:example1,example2,...';
     
+    console.log('火山AI提示词:', prompt);
+    
     const messages = [
       { role: 'system', content: '你是一个专业的英语词典助手，专注于提供准确的单词释义和考研常考用法。' },
       { role: 'user', content: prompt }
     ];
     
-    const apiResponse = await callVolcanoAPI(messages);
+    let apiResponse: string;
+    try {
+      apiResponse = await callVolcanoAPI(messages);
+      console.log('火山AI原始响应:', apiResponse);
+    } catch (volcanoError) {
+      console.error('火山AI调用失败:', volcanoError);
+      // 返回默认空结果，但包含错误信息
+      return {
+        phonetic: '',
+        definitions: [`查询单词"${normalizedWord}"失败，请稍后重试`],
+        examples: [],
+        provider: 'error',
+        fromCache: false,
+        error: String(volcanoError)
+      };
+    }
     
-    // 解析API响应
+    // 初始化结果对象
     wordInfo = {
       phonetic: '',
-      definitions: []
+      definitions: [],
+      examples: []
     };
     
-    // 提取音标
-    const phoneticMatch = apiResponse.match(/音标:\/(.*?)\//);
-    if (phoneticMatch && phoneticMatch[1]) {
-      wordInfo.phonetic = phoneticMatch[1];
+    console.log('开始解析火山AI响应，原始内容长度:', apiResponse.length);
+    
+    // 提取音标 - 增强版，尝试多种格式
+    const phoneticPatterns = [
+      /音标:\/(.*?)\//,          // 标准格式: 音标:/fəˈnetɪk/
+      /音标[：:]([^\n]+)/,        // 中文冒号格式: 音标:fəˈnetɪk
+      /\[([^\]]+)\]/,            // 方括号格式: [fəˈnetɪk]
+      /发音[：:]([^\n]+)/         // 发音格式: 发音:fəˈnetɪk
+    ];
+    
+    for (const pattern of phoneticPatterns) {
+      const match = apiResponse.match(pattern);
+      if (match && match[1]) {
+        wordInfo.phonetic = match[1].trim();
+        console.log('提取到音标:', wordInfo.phonetic);
+        break;
+      }
     }
     
-    // 提取释义
-    const definitionMatch = apiResponse.match(/释义:(.*?)(?=\n例句:|$)/);
-    if (definitionMatch && definitionMatch[1]) {
-      wordInfo.definitions = definitionMatch[1].split(',').map(d => d.trim());
+    // 提取释义 - 增强版，尝试多种格式和策略
+    const definitionPatterns = [
+      /释义:(.*?)(?=\n例句:|$)/s,  // 标准格式，跨行匹配
+      /释义[：:]([^\n]+)/g,         // 中文冒号格式
+      /解释[：:]([^\n]+)/g,         // 解释格式
+      /意思[：:]([^\n]+)/g          // 意思格式
+    ];
+    
+    const extractedDefinitions: string[] = [];
+    
+    // 尝试所有正则表达式模式
+    for (const pattern of definitionPatterns) {
+      const matches = apiResponse.matchAll(pattern);
+      for (const match of matches) {
+        if (match[1]) {
+          const definitions = match[1].split(',').map(d => d.trim());
+          extractedDefinitions.push(...definitions);
+        }
+      }
     }
     
-    // 提取例句
-    const exampleMatch = apiResponse.match(/例句:(.*)/);
-    if (exampleMatch && exampleMatch[1]) {
-      wordInfo.examples = exampleMatch[1].split(',').map(e => e.trim());
+    // 如果通过正则没有提取到释义，尝试基于内容的智能提取
+    if (extractedDefinitions.length === 0) {
+      console.log('尝试基于内容智能提取释义');
+      
+      // 分割文本为句子
+      const sentences = apiResponse.split(/[。！？\n;]/);
+      
+      // 查找包含关键信息的句子
+      for (const sentence of sentences) {
+        const cleanSentence = sentence.trim();
+        if (cleanSentence.length > 5 && 
+            (cleanSentence.includes('表示') || 
+             cleanSentence.includes('指') || 
+             cleanSentence.includes('意为') || 
+             (cleanSentence.includes(normalizedWord) && cleanSentence.length > 10))) {
+          extractedDefinitions.push(cleanSentence);
+          if (extractedDefinitions.length >= 2) break;
+        }
+      }
     }
+    
+    // 确保至少有一个有意义的释义
+    if (extractedDefinitions.length === 0) {
+      console.log('未提取到有效释义，添加详细默认释义');
+      extractedDefinitions.push(
+        `单词"${normalizedWord}"的考研核心释义`,
+        `作为名词/动词/形容词的基本含义`
+      );
+    }
+    
+    wordInfo.definitions = extractedDefinitions;
+    console.log('最终提取到的释义数量:', wordInfo.definitions.length);
+    console.log('释义内容:', wordInfo.definitions);
+    
+    // 提取例句 - 增强版，尝试多种格式和策略
+    const examplePatterns = [
+      /例句:(.*)/s,                // 标准格式，跨行匹配
+      /例句[：:]([^\n]+)/g,         // 中文冒号格式
+      /例如[：:]([^\n]+)/g,         // 例如格式
+      /例[：:]([^\n]+)/g            // 例格式
+    ];
+    
+    const extractedExamples: string[] = [];
+    
+    // 尝试所有正则表达式模式
+    for (const pattern of examplePatterns) {
+      const matches = apiResponse.matchAll(pattern);
+      for (const match of matches) {
+        if (match[1]) {
+          const examples = match[1].split(',').map(e => e.trim());
+          extractedExamples.push(...examples);
+        }
+      }
+    }
+    
+    // 如果通过正则没有提取到例句，尝试基于内容的智能提取
+    if (extractedExamples.length === 0) {
+      console.log('尝试基于内容智能提取例句');
+      
+      // 分割文本为句子
+      const sentences = apiResponse.split(/[。！？\n;]/);
+      
+      // 查找包含单词的完整句子作为例句
+      for (const sentence of sentences) {
+        const cleanSentence = sentence.trim();
+        if (cleanSentence.length >= 15 && 
+            cleanSentence.length <= 100 && 
+            cleanSentence.includes(normalizedWord)) {
+          // 确保句子以句号结尾
+          const formattedSentence = cleanSentence.endsWith('。') ? cleanSentence : cleanSentence + '。';
+          extractedExamples.push(formattedSentence);
+          if (extractedExamples.length >= 2) break;
+        }
+      }
+    }
+    
+    // 如果还是没有例句，添加一个默认例句
+    if (extractedExamples.length === 0) {
+      console.log('未提取到例句，添加默认例句');
+      extractedExamples.push(
+        `This is an example sentence containing the word "${normalizedWord}".`,
+        `在考研英语中，"${normalizedWord}"是一个重要的词汇。`
+      );
+    }
+    
+    wordInfo.examples = extractedExamples;
+    console.log('最终提取到的例句数量:', wordInfo.examples.length);
+    console.log('例句内容:', wordInfo.examples);
+    
+    console.log('解析后的单词信息:', wordInfo);
     
     // 缓存结果
     await cacheWordResult(normalizedWord, !!contextSentence, wordInfo, provider);
@@ -425,114 +654,9 @@ export default async function onRequest(context: any) {
     // 使用handleWordQuery函数处理请求
     const result = await handleWordQuery({ word, contextSentence, forceRefresh, useBaidu });
     
+    console.log('单词查询结果:', result); // 添加调试日志，查看返回的数据结构
+    
     return new Response(JSON.stringify(result), {
-      status: 200,
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    let wordInfo: WordInfo;
-    let provider: string;
-
-    // 优先使用腾讯词典API
-    if (finalUseTencent && process.env.TENCENT_APP_ID && process.env.TENCENT_APP_KEY) {
-      try {
-        wordInfo = await callTencentDictAPI(word);
-        provider = 'tencent';
-        // 缓存结果
-        await cacheWordResult(word, !!contextSentence, wordInfo, provider);
-        return new Response(JSON.stringify({
-          ...wordInfo,
-          provider,
-          fromCache: false
-        }), {
-          status: 200,
-          headers: {
-            ...headers,
-            'Content-Type': 'application/json'
-          }
-        });
-      } catch (tencentError) {
-        console.error('腾讯词典API调用失败，尝试使用百度翻译API:', tencentError);
-        // 继续使用百度翻译API作为备用
-      }
-    }
-
-    // 使用百度翻译API作为备用
-    if (finalUseBaidu && BAIDU_APP_ID && BAIDU_SECRET_KEY) {
-      try {
-        wordInfo = await callBaiduTranslateAPI(word);
-        provider = 'baidu';
-        // 缓存结果
-        await cacheWordResult(word, !!contextSentence, wordInfo, provider);
-        return new Response(JSON.stringify({
-          ...wordInfo,
-          provider,
-          fromCache: false
-        }), {
-          status: 200,
-          headers: {
-            ...headers,
-            'Content-Type': 'application/json'
-          }
-        });
-      } catch (baiduError) {
-        console.error('百度翻译API调用失败，尝试使用火山AI:', baiduError);
-        // 继续使用火山AI作为备用
-      }
-    }
-
-    // 使用火山AI接口查询单词信息
-    provider = 'volcano';
-    let prompt = `请提供单词"${word}"的以下信息：\n1. 音标\n2. 考研核心释义（优先显示常考含义）\n`;
-    
-    if (contextSentence) {
-      prompt += `3. 在句子"${contextSentence}"中的例句分析\n`;
-    }
-    
-    prompt += '请使用以下格式返回，不要添加其他信息：\n音标:/phonetic/\n释义:definition1,definition2,...\n例句:example1,example2,...';
-    
-    const messages = [
-      { role: 'system', content: '你是一个专业的英语词典助手，专注于提供准确的单词释义和考研常考用法。' },
-      { role: 'user', content: prompt }
-    ];
-    
-    const apiResponse = await callVolcanoAPI(messages);
-    
-    // 解析API响应
-    wordInfo = {
-      phonetic: '',
-      definitions: []
-    };
-    
-    // 提取音标
-    const phoneticMatch = apiResponse.match(/音标:\/(.*?)\//);
-    if (phoneticMatch && phoneticMatch[1]) {
-      wordInfo.phonetic = phoneticMatch[1];
-    }
-    
-    // 提取释义
-    const definitionMatch = apiResponse.match(/释义:(.*?)(?=\n例句:|$)/);
-    if (definitionMatch && definitionMatch[1]) {
-      wordInfo.definitions = definitionMatch[1].split(',').map(d => d.trim());
-    }
-    
-    // 提取例句
-    const exampleMatch = apiResponse.match(/例句:(.*)/);
-    if (exampleMatch && exampleMatch[1]) {
-      wordInfo.examples = exampleMatch[1].split(',').map(e => e.trim());
-    }
-    
-    // 缓存结果
-    await cacheWordResult(word, !!contextSentence, wordInfo, provider);
-    
-    return new Response(JSON.stringify({
-      ...wordInfo,
-      provider,
-      fromCache: false
-    }), {
       status: 200,
       headers: {
         ...headers,
