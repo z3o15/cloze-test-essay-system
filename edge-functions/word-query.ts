@@ -200,24 +200,197 @@ async function cacheWordResult(word: string, withContext: boolean, wordInfo: Wor
 export default async function onRequest(context: any) {
   const { request } = context;
   
-  // 设置CORS头
+  console.log(`收到请求: ${request.method} ${request.url}`);
+  console.log('请求头:', Object.fromEntries(request.headers.entries()));
+  
+  // 设置CORS头 - 更加完整的CORS配置
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
+    'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Requested-With',
+    'Access-Control-Max-Age': '86400'
   };
   
   // 处理OPTIONS请求
   if (request.method === 'OPTIONS') {
+    console.log('处理OPTIONS预检请求');
     return new Response(null, {
       status: 204,
       headers
     });
   }
   
-  // 只处理POST请求
-  if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+  // 处理GET请求作为备选方法
+  if (request.method === 'GET') {
+    console.log('处理GET请求作为备选方法');
+    try {
+      // 从URL参数中获取单词
+      const url = new URL(request.url);
+      const word = url.searchParams.get('word');
+      
+      if (!word) {
+        return new Response(JSON.stringify({ error: '缺少word参数' }), {
+          status: 400,
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json'
+          }
+        });
+      }
+      
+      // 使用与POST相同的逻辑处理请求
+      const result = await handleWordQuery({
+        word,
+        contextSentence: url.searchParams.get('contextSentence'),
+        forceRefresh: url.searchParams.get('forceRefresh') === 'true',
+        useBaidu: url.searchParams.get('useBaidu') !== 'false'
+      });
+      
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json'
+        }
+      });
+    } catch (error) {
+      console.error('GET请求处理失败:', error);
+      return new Response(JSON.stringify({
+        error: '处理请求失败',
+        message: error instanceof Error ? error.message : String(error)
+      }), {
+        status: 500,
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json'
+        }
+      });
+    }
+  }
+  
+  // 处理Word查询的函数
+  async function handleWordQuery(params: { 
+    word: string; 
+    contextSentence?: string; 
+    forceRefresh?: boolean; 
+    useBaidu?: boolean 
+  }) {
+    const { word, contextSentence, forceRefresh = false, useBaidu = true } = params;
+    
+    // 标准化单词
+    const normalizedWord = word.toLowerCase().trim();
+    
+    // 尝试从缓存获取（除非强制刷新）
+    if (!forceRefresh) {
+      const cachedResult = await getWordFromCache(normalizedWord, !!contextSentence);
+      if (cachedResult) {
+        return {
+          ...cachedResult,
+          fromCache: true
+        };
+      }
+    }
+    
+    let wordInfo: WordInfo;
+    let provider: string;
+    
+    // 优先使用腾讯词典API
+    if (process.env.TENCENT_APP_ID && process.env.TENCENT_APP_KEY) {
+      try {
+        wordInfo = await callTencentDictAPI(normalizedWord);
+        provider = 'tencent';
+        // 缓存结果
+        await cacheWordResult(normalizedWord, !!contextSentence, wordInfo, provider);
+        return {
+          ...wordInfo,
+          provider,
+          fromCache: false
+        };
+      } catch (tencentError) {
+        console.error('腾讯词典API调用失败，尝试使用百度翻译API:', tencentError);
+        // 继续使用百度翻译API作为备用
+      }
+    }
+    
+    // 使用百度翻译API作为备用
+    if (useBaidu && BAIDU_APP_ID && BAIDU_SECRET_KEY) {
+      try {
+        wordInfo = await callBaiduTranslateAPI(normalizedWord);
+        provider = 'baidu';
+        // 缓存结果
+        await cacheWordResult(normalizedWord, !!contextSentence, wordInfo, provider);
+        return {
+          ...wordInfo,
+          provider,
+          fromCache: false
+        };
+      } catch (baiduError) {
+        console.error('百度翻译API调用失败，尝试使用火山AI:', baiduError);
+        // 继续使用火山AI作为备用
+      }
+    }
+    
+    // 使用火山AI接口查询单词信息
+    provider = 'volcano';
+    let prompt = `请提供单词"${normalizedWord}"的以下信息：\n1. 音标\n2. 考研核心释义（优先显示常考含义）\n`;
+    
+    if (contextSentence) {
+      prompt += `3. 在句子"${contextSentence}"中的例句分析\n`;
+    }
+    
+    prompt += '请使用以下格式返回，不要添加其他信息：\n音标:/phonetic/\n释义:definition1,definition2,...\n例句:example1,example2,...';
+    
+    const messages = [
+      { role: 'system', content: '你是一个专业的英语词典助手，专注于提供准确的单词释义和考研常考用法。' },
+      { role: 'user', content: prompt }
+    ];
+    
+    const apiResponse = await callVolcanoAPI(messages);
+    
+    // 解析API响应
+    wordInfo = {
+      phonetic: '',
+      definitions: []
+    };
+    
+    // 提取音标
+    const phoneticMatch = apiResponse.match(/音标:\/(.*?)\//);
+    if (phoneticMatch && phoneticMatch[1]) {
+      wordInfo.phonetic = phoneticMatch[1];
+    }
+    
+    // 提取释义
+    const definitionMatch = apiResponse.match(/释义:(.*?)(?=\n例句:|$)/);
+    if (definitionMatch && definitionMatch[1]) {
+      wordInfo.definitions = definitionMatch[1].split(',').map(d => d.trim());
+    }
+    
+    // 提取例句
+    const exampleMatch = apiResponse.match(/例句:(.*)/);
+    if (exampleMatch && exampleMatch[1]) {
+      wordInfo.examples = exampleMatch[1].split(',').map(e => e.trim());
+    }
+    
+    // 缓存结果
+    await cacheWordResult(normalizedWord, !!contextSentence, wordInfo, provider);
+    
+    return {
+      ...wordInfo,
+      provider,
+      fromCache: false
+    };
+  }
+  
+  // 主要处理POST请求
+  if (request.method === 'POST') {
+    console.log('处理POST请求');
+  } else {
+    // 对于其他方法，返回更友好的错误信息
+    console.log(`不支持的请求方法: ${request.method}`);
+    return new Response(JSON.stringify({ 
+      error: `Method ${request.method} not allowed`,
+      allowedMethods: ['POST', 'GET', 'OPTIONS']
+    }), {
       status: 405,
       headers: {
         ...headers,
@@ -236,10 +409,11 @@ export default async function onRequest(context: any) {
       body = {};
     }
     
-    const { word, contextSentence, useTencent = true, useBaidu, skipCache = false } = body;
+    const { word, contextSentence, forceRefresh = false, useBaidu = true } = body;
     
+    // 参数验证
     if (!word || typeof word !== 'string') {
-      return new Response(JSON.stringify({ error: '单词内容不能为空' }), {
+      return new Response(JSON.stringify({ error: '单词不能为空' }), {
         status: 400,
         headers: {
           ...headers,
@@ -248,26 +422,16 @@ export default async function onRequest(context: any) {
       });
     }
     
-    // 为向后兼容，支持useBaidu参数，但优先使用useTencent
-    const finalUseTencent = useTencent || (useBaidu === undefined);
-    const finalUseBaidu = useBaidu !== false;
-
-    // 尝试从缓存获取（除非明确跳过缓存）
-    if (!skipCache) {
-      const cachedResult = await getWordFromCache(word, !!contextSentence);
-      if (cachedResult) {
-        return new Response(JSON.stringify({
-          ...cachedResult,
-          fromCache: true
-        }), {
-          status: 200,
-          headers: {
-            ...headers,
-            'Content-Type': 'application/json'
-          }
-        });
+    // 使用handleWordQuery函数处理请求
+    const result = await handleWordQuery({ word, contextSentence, forceRefresh, useBaidu });
+    
+    return new Response(JSON.stringify(result), {
+      status: 200,
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json'
       }
-    }
+    });
 
     let wordInfo: WordInfo;
     let provider: string;

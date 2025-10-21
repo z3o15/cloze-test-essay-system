@@ -136,17 +136,20 @@ const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completio
 // 本地API代理地址
 const LOCAL_WORD_QUERY_API = '/api/word-query';
 
-// 调用本地API代理的函数
+// 调用本地API代理的函数 - 优化为直接使用GET请求，符合API要求
 export const callLocalWordQueryAPI = async (word: string, contextSentence?: string, forceRefresh: boolean = false): Promise<WordInfo> => {
   try {
-    console.log('调用本地API代理查询单词:', word);
+    console.log('调用本地API代理查询单词(GET方式):', word);
     
-    // 发送请求到本地API代理
-    const response = await api.post(LOCAL_WORD_QUERY_API, {
-      word,
-      contextSentence,
-      forceRefresh,
-      useBaidu: true // 优先使用百度翻译API
+    // 直接使用GET请求，符合服务器要求
+    const response = await api.get(LOCAL_WORD_QUERY_API, {
+      params: {
+        word,
+        contextSentence,
+        forceRefresh,
+        useBaidu: true // 优先使用百度翻译API
+      },
+      timeout: 5000 // 设置超时时间
     });
     
     // 检查响应
@@ -158,6 +161,7 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
         examples: response.data.examples || []
       };
       
+      console.log('GET请求成功');
       return wordInfo;
     } else {
       console.error('本地API代理响应格式错误:', response.data);
