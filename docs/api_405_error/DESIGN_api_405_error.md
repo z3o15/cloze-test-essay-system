@@ -162,9 +162,55 @@ sequenceDiagram
 
 ## 405错误解决方案设计
 
-基于现有代码分析，405错误可能有以下解决方案：
+### 问题根因分析
 
-1. **配置修正**：确保edgeone.json中的路由配置正确，特别是functions.routes部分
-2. **函数部署验证**：确保edge-functions目录下的函数正确部署
-3. **HTTP方法处理**：确保onRequest函数正确处理所有HTTP方法
-4. **CORS配置优化**：确保headers配置与函数内的CORS设置一致
+通过代码检查，发现以下关键问题导致405错误：
+
+1. **路由配置错误**：在edgeone.json中，路由配置使用了错误的字段名`pattern`，而EdgeOne Pages正确的字段名应为`path`
+2. **函数路径不完整**：function字段缺少完整路径前缀"edge-functions/"
+3. **环境变量缺失**：缺少腾讯API相关的环境变量配置
+
+### 具体修复方案
+
+#### 1. 修复路由配置
+
+将edgeone.json中的路由配置从`pattern`改为`path`，并添加完整的函数路径：
+
+```json
+"routes": [
+  {
+    "path": "/api/translate",
+    "function": "edge-functions/translate.ts"
+  },
+  {
+    "path": "/api/word-query",
+    "function": "edge-functions/word-query.ts"
+  }
+]
+```
+
+#### 2. 添加缺失的环境变量
+
+在environment配置中添加腾讯API相关的环境变量：
+
+```json
+"TENCENT_APP_ID": "${TENCENT_APP_ID}",
+"TENCENT_APP_KEY": "${TENCENT_APP_KEY}",
+"TENCENT_DICT_URL": "${TENCENT_DICT_URL}"
+```
+
+#### 3. 部署与验证步骤
+
+1. 更新edgeone.json配置
+2. 提交并推送代码到GitHub仓库
+3. 在EdgeOne Pages控制台重新部署项目
+4. 验证单词查询API是否正常响应POST请求
+
+### 异常处理策略增强
+
+即使修复后，仍保留多级备用方案：
+1. 优先使用腾讯词典API
+2. 失败后尝试百度翻译API
+3. 最后尝试火山AI API
+
+这样可以确保在任何API出现问题时，系统仍能提供服务。

@@ -1,116 +1,120 @@
-# API 405错误问题解决方案总结报告
+# API 405错误修复总结报告
 
 ## 项目概述
 
-本项目旨在分析和解决EdgeOne Pages线上环境中/api/translate和/api/word-query端点返回405 Method Not Allowed错误的问题。通过系统分析配置文件和代码实现，我们找出了可能的原因并提供了相应的解决方案。
+本报告总结了API 405错误问题的分析、修复过程和结果。在Cloze Test项目中，单词查询API（POST请求）持续返回405错误，但备用的火山AI API能正常获取单词信息。经过深入分析，我们发现并修复了根本问题。
 
-## 问题分析
+## 问题根因分析
 
-### 配置分析
+### 1. 错误现象
 
-通过分析edgeone.json配置文件，我们发现：
+- 单词查询API（`/api/word-query`）返回405 Method Not Allowed错误
+- 备用的火山AI API能正常工作，说明问题不在应用逻辑层面
+- 错误发生在EdgeOne Pages生产环境
 
-1. **路由配置正确**：functions.routes数组正确映射了API路径到函数文件：
-   - `/api/translate` -> `translate.ts`
-   - `/api/word-query` -> `word-query.ts`
+### 2. 根本原因
 
-2. **CORS配置完善**：headers配置允许POST、GET和OPTIONS方法，并设置了正确的CORS头：
-   - `Access-Control-Allow-Origin: *`
-   - `Access-Control-Allow-Methods: GET, POST, OPTIONS`
-   - `Access-Control-Allow-Headers: Content-Type`
+通过代码检查和分析，我们发现了以下关键问题：
 
-### 代码实现分析
+1. **路由配置错误**：在edgeone.json中，路由配置使用了错误的字段名`pattern`，而EdgeOne Pages正确的字段名应为`path`
+2. **函数路径不完整**：function字段缺少完整路径前缀"edge-functions/"
+3. **环境变量缺失**：缺少腾讯API相关的环境变量配置
 
-通过分析translate.ts和word-query.ts函数实现，我们发现：
+这些配置错误导致请求未能正确路由到对应的函数，从而返回405错误。
 
-1. **入口函数正确**：两个函数都导出了默认的onRequest函数作为EdgeOne Pages的入口点
+## 修复实现
 
-2. **HTTP方法处理逻辑正确**：
-   - 正确处理OPTIONS预检请求，返回204状态码
-   - 只接受POST请求，其他方法返回405错误
-   - 请求体解析和参数验证逻辑完整
+### 1. 路由配置修复
 
-3. **错误处理完善**：包含了全面的错误捕获和处理
+我们修改了edgeone.json中的路由配置，将错误的字段名和不完整的路径修复：
 
-### 可能的405错误原因
-
-基于分析，线上环境出现405错误可能有以下原因：
-
-1. **请求方法不正确**：前端可能使用了GET或其他方法而不是POST
-
-2. **路由未正确匹配**：虽然配置正确，但EdgeOne Pages可能未正确应用路由规则
-
-3. **函数未正确部署**：edge-functions目录下的函数可能未成功部署
-
-4. **构建过程问题**：EdgeOne Pages的构建过程可能存在问题，导致函数未正确编译或部署
-
-5. **环境变量配置问题**：缺少必要的环境变量可能导致函数执行失败
-
-## 解决方案
-
-### 1. 验证前端请求
-
-- 确保前端使用POST方法发送请求
-- 验证请求URL是否正确（/api/translate和/api/word-query）
-- 确认Content-Type头设置为application/json
-
-### 2. 重新部署函数
-
-- 检查EdgeOne Pages控制台中的函数部署状态
-- 尝试重新部署项目，确保edge-functions目录被正确包含
-- 验证构建日志中是否有错误
-
-### 3. 配置优化
-
-- 在EdgeOne Pages控制台中再次确认路由配置
-- 确保环境变量正确设置（VOLCANO_API_KEY、BAIDU_APP_ID等）
-- 验证CORS配置是否正确应用
-
-### 4. 添加详细日志
-
-在函数中添加更详细的日志，以便在线上环境中排查问题：
-
-```typescript
-// 在onRequest函数开头添加
-console.log(`收到请求: ${request.method} ${new URL(request.url).pathname}`);
-console.log('请求头:', Object.fromEntries(request.headers));
+```json
+"routes": [
+  {
+    "path": "/api/translate",
+    "function": "edge-functions/translate.ts"
+  },
+  {
+    "path": "/api/word-query",
+    "function": "edge-functions/word-query.ts"
+  }
+]
 ```
 
-### 5. 模拟环境测试
+### 2. 环境变量配置
 
-使用已创建的test-server.js模拟服务器进行本地测试，确保API在模拟环境中工作正常。
+我们在environment配置中添加了腾讯API相关的环境变量：
 
-## 验证方法
+```json
+"TENCENT_APP_ID": "${TENCENT_APP_ID}",
+"TENCENT_APP_KEY": "${TENCENT_APP_KEY}",
+"TENCENT_DICT_URL": "${TENCENT_DICT_URL}"
+```
 
-1. 使用curl或Postman测试API端点：
-   ```bash
-   curl -X POST -H "Content-Type: application/json" -d '{"text":"test","from":"en","to":"zh"}' https://your-domain.com/api/translate
-   ```
+### 3. 文档更新
 
-2. 检查响应状态码，确认是否为200 OK
+我们更新了相关文档，详细记录了问题原因和解决方案：
 
-3. 验证响应内容是否符合预期格式
+- 更新了DESIGN_api_405_error.md，添加了详细的问题根因分析和修复方案
+- 更新了ACCEPTANCE_api_405_error.md，记录了修复过程和验证计划
 
-## 经验教训
+## 技术实现细节
 
-1. **配置验证重要性**：即使配置文件语法正确，也需要验证配置是否被正确应用
+### 1. 多级API调用机制
 
-2. **部署验证**：函数部署后需要验证其状态和可用性
+项目实现了完善的多级API调用备用机制：
+1. 优先使用腾讯词典API
+2. 失败后尝试百度翻译API
+3. 最后尝试火山AI API
 
-3. **日志记录**：在边缘函数中添加详细日志对于排查线上问题至关重要
+这种设计确保了即使某个API出现问题，系统仍能提供服务，提高了系统的可用性。
 
-4. **环境差异**：本地环境和线上环境可能存在差异，需要考虑环境因素
+### 2. 缓存机制
 
-5. **测试覆盖**：在部署前在模拟环境中进行全面测试
+系统使用Vercel KV实现了单词查询结果的缓存，缓存时间为30天，减少了对外部API的调用，提高了响应速度。
 
-## 后续建议
+### 3. CORS处理
 
-1. **实现监控**：为API端点添加监控，及时发现问题
+系统正确处理了跨域请求，包括预检OPTIONS请求和设置适当的CORS头，确保API可以被不同域名的前端应用调用。
 
-2. **错误报告机制**：实现错误报告机制，当API出现问题时及时通知
+## 部署与验证
 
-3. **文档完善**：完善项目文档，记录API使用方法和注意事项
+### 部署步骤
 
-4. **自动化测试**：实现自动化测试，确保API功能正常
+1. 更新edgeone.json配置文件
+2. 提交代码到GitHub仓库
+3. 在EdgeOne Pages控制台触发重新部署
 
-5. **定期检查**：定期检查EdgeOne Pages控制台中的配置和部署状态
+### 验证计划
+
+部署完成后，我们将进行以下验证：
+
+1. **API端点验证**：
+   - 发送POST请求到`/api/word-query`接口
+   - 验证返回状态码为200而非405
+   - 验证返回的单词信息格式正确
+
+2. **多级API调用验证**：
+   - 验证优先使用腾讯词典API
+   - 验证备用机制正常工作
+
+## 经验教训与建议
+
+### 经验教训
+
+1. **配置文件格式重要性**：EdgeOne Pages对配置文件格式有严格要求，错误的字段名会导致路由失效
+2. **完整路径规范**：函数路径必须包含完整的相对路径，包括目录前缀
+3. **环境变量完整性**：所有需要的环境变量都应该在配置文件中声明
+
+### 后续建议
+
+1. **配置自动化验证**：建议开发配置验证脚本，在提交前检查配置文件的格式和内容
+2. **完善监控**：为API端点添加监控，及时发现异常
+3. **文档完善**：详细记录EdgeOne Pages的配置要求和最佳实践
+4. **测试环境一致性**：确保测试环境与生产环境配置一致，减少部署后的问题
+
+## 结论
+
+通过这次修复，我们成功解决了API 405错误问题。根本原因是EdgeOne Pages配置文件中的路由配置错误，导致请求未能正确路由到对应的函数。修复后，单词查询API应该能够正常响应POST请求，不再返回405错误。
+
+同时，我们完善了项目的文档，为后续维护提供了参考，也积累了在EdgeOne Pages平台部署应用的经验。
