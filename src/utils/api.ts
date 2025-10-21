@@ -2,11 +2,106 @@ import axios from 'axios'
 
 // 创建axios实例
 const api = axios.create({
-  timeout: 20000,
+  timeout: 5000,
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
   }
 })
+
+// 添加响应拦截器，在实例级别统一处理HTML响应问题
+api.interceptors.response.use(
+  (response) => {
+    console.log('响应拦截器 - 收到响应，状态码:', response.status)
+    console.log('响应拦截器 - 响应类型:', typeof response.data)
+    
+    // 1. 首先检查是否是字符串响应
+    if (typeof response.data === 'string') {
+      const lowerCaseData = response.data.toLowerCase()
+      
+      // 检查是否包含HTML特征
+      const isHtml = 
+        lowerCaseData.includes('<!doctype html>') || 
+        lowerCaseData.includes('<html') || 
+        lowerCaseData.includes('<head') ||
+        lowerCaseData.includes('<body') ||
+        lowerCaseData.includes('<title') ||
+        lowerCaseData.includes('<meta')
+      
+      if (isHtml) {
+        console.error('响应拦截器 - 检测到HTML响应，将替换为错误对象')
+        // 替换为标准错误响应对象
+        response.data = {
+          error: 'API返回HTML页面而非JSON数据',
+          errorType: 'HTML_RESPONSE',
+          isHtmlResponse: true
+        }
+      } else {
+        // 尝试解析非HTML字符串为JSON
+        try {
+          console.log('响应拦截器 - 尝试将字符串解析为JSON')
+          response.data = JSON.parse(response.data)
+          console.log('响应拦截器 - 成功解析字符串为JSON')
+        } catch (e) {
+          console.error('响应拦截器 - 无法解析字符串为JSON，保留原始数据')
+          // 保留原始字符串数据，但添加警告标记
+          response.data = {
+            rawString: response.data,
+            warning: 'Response is a non-JSON string',
+            isRawString: true
+          }
+        }
+      }
+    }
+    
+    // 2. 确保响应数据是有效的对象
+    if (!response.data || typeof response.data !== 'object' || response.data === null) {
+      console.error('响应拦截器 - 响应数据不是有效的对象，将替换为默认对象')
+      response.data = {
+        error: 'Invalid response data format',
+        errorType: 'INVALID_DATA',
+        isInvalidData: true
+      }
+    }
+    
+    // 3. 检查是否有错误标记
+    if (response.data.error || response.data.isHtmlResponse) {
+      console.error('响应拦截器 - 检测到错误响应:', response.data.error || 'HTML response detected')
+    }
+    
+    return response
+  },
+  (error) => {
+    // 处理请求错误
+    console.error('响应拦截器 - 请求错误:', error.message)
+    
+    // 增强错误处理
+    if (error.response) {
+      // 服务器返回错误状态码
+      console.error('响应拦截器 - 服务器错误状态码:', error.response.status)
+      
+      // 检查错误响应是否是HTML
+      if (typeof error.response.data === 'string') {
+        const lowerCaseData = error.response.data.toLowerCase()
+        const isHtml = 
+          lowerCaseData.includes('<!doctype html>') || 
+          lowerCaseData.includes('<html')
+        
+        if (isHtml) {
+          console.error('响应拦截器 - 错误响应是HTML格式')
+          // 替换为标准错误对象
+          error.response.data = {
+            error: 'API返回HTML错误页面',
+            errorType: 'HTML_ERROR_RESPONSE',
+            statusCode: error.response.status
+          }
+        }
+      }
+    }
+    
+    return Promise.reject(error)
+  }
+)
 
 // 请求拦截器
 api.interceptors.request.use(
@@ -136,6 +231,22 @@ const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completio
 // 本地API代理地址
 const LOCAL_WORD_QUERY_API = '/api/word-query';
 
+// 验证响应数据的有效性
+function isValidResponseData(data: any): boolean {
+  // 如果是错误响应，认为它是有效的（用于错误处理）
+  if (data.error || data.isHtmlResponse) {
+    return true
+  }
+  
+  // 基本的非错误响应应该是对象
+  if (typeof data !== 'object' || data === null) {
+    return false
+  }
+  
+  // 对于单词查询，至少应该有某些预期字段或不为空对象
+  return Object.keys(data).length > 0
+}
+
 // 调用本地API代理的函数 - 优化为直接使用GET请求，符合API要求
 export const callLocalWordQueryAPI = async (word: string, contextSentence?: string, forceRefresh: boolean = false): Promise<WordInfo> => {
   try {
@@ -158,8 +269,32 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
     });
     
     // 添加详细的响应日志，帮助调试
+    console.log('API原始响应内容类型:', typeof response.data);
     console.log('API原始响应内容:', response.data);
-    console.log('响应数据类型:', typeof response.data);
+    
+    // 响应拦截器已经处理了HTML响应和无效数据
+    // 检查是否有错误标记（来自拦截器或API）
+    if (response.data.error || response.data.isHtmlResponse) {
+      console.error('API响应包含错误信息:', response.data.error);
+      
+      // 增强错误对象，添加更多上下文信息
+      const enhancedError = {
+        phonetic: '',
+        definitions: [`查询失败: ${response.data.error || 'API返回错误'}`],
+        examples: [`单词"${word}"查询出错，请稍后再试`]
+      };
+      return enhancedError;
+    }
+    
+    // 验证响应数据的完整性
+    if (!isValidResponseData(response.data)) {
+      console.error('响应数据结构不完整');
+      return {
+        phonetic: '',
+        definitions: ['查询失败: API响应数据结构不完整'],
+        examples: [`单词"${word}"查询返回的数据不完整`]
+      };
+    }
     
     // 初始化结果对象
     const wordInfo: WordInfo = {
@@ -167,23 +302,6 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
       definitions: ['未找到释义'],
       examples: []
     };
-    
-    // 防御性检查：防止响应是HTML字符串
-    if (typeof response.data === 'string') {
-      // 检查是否是HTML字符串（包含DOCTYPE或html标签）
-      const isHtml = response.data.includes('<!DOCTYPE html>') || 
-                    response.data.includes('<html') || 
-                    response.data.includes('<head');
-      
-      if (isHtml) {
-        console.error('API返回HTML内容而不是JSON:', response.data.substring(0, 100) + '...');
-        return {
-          phonetic: '',
-          definitions: [`查询失败: API返回了HTML页面而不是JSON数据`],
-          examples: [`单词"${word}"查询时遇到了路由配置问题`]
-        };
-      }
-    }
     
     // 验证并处理响应数据
     if (response.data && typeof response.data === 'object') {
@@ -243,10 +361,6 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
       if (response.data.fromCache) {
         console.log('数据来自缓存');
       }
-    } else {
-      console.error('本地API代理响应格式错误，不是有效的对象:', response.data);
-      // 返回带有错误信息的默认结果
-      wordInfo.definitions = [`查询单词"${word}"时返回的数据格式错误`];
     }
     
     console.log('GET请求处理完成，最终单词信息:', wordInfo);
@@ -255,16 +369,30 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
     console.error('本地API代理调用失败:', error);
     console.error('错误详情:', error.response?.data || error.message || error);
     
-    // 返回友好的错误信息
-    const errorMessage = error.response?.data?.error || 
-                        error.message || 
-                        '网络请求失败';
-    
-      return {
+    // 构建统一的错误响应对象
+    const errorResponse = {
       phonetic: '',
-      definitions: [`查询失败: ${errorMessage}`],
+      definitions: ['查询失败'],
       examples: [`请检查网络连接或稍后重试单词"${word}"的查询`]
     };
+    
+    // 处理网络错误或超时
+    if (!error.response) {
+      console.error('网络错误或超时');
+      errorResponse.definitions = ['查询失败: 网络错误或API超时'];
+      return errorResponse;
+    }
+    
+    // 处理服务器错误 - 响应拦截器已经处理了HTML错误响应
+    console.error('服务器返回错误状态码:', error.response.status);
+    
+    // 使用拦截器处理后的错误信息
+    const processedErrorData = error.response.data || {};
+    errorResponse.definitions = [
+      `查询失败: ${processedErrorData.error || '服务器错误'}`
+    ];
+    
+    return errorResponse;
   }
 };
 
@@ -278,6 +406,34 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
     forceRefresh = contextSentence;
     contextSentence = undefined;
   }
+  
+  // 定义统一的错误响应创建函数
+  const createErrorResponse = (errorMessage: string, isCritical: boolean = false): WordInfo => {
+    const errorResponse: WordInfo = {
+      phonetic: '',
+      definitions: [errorMessage],
+      examples: isCritical ? 
+        [`单词"${word}"查询遇到严重问题，请稍后再试`] : 
+        [`请稍后重试单词"${word}"的查询`]
+    };
+    
+    // 对于非强制刷新且非关键错误，可以考虑使用缓存的旧数据（如果有）
+    if (!forceRefresh && !isCritical) {
+      const cachedData = wordCache.get(normalizedWord);
+      if (cachedData) {
+        console.log('查询失败但存在缓存数据，使用过期缓存作为临时替代:', normalizedWord);
+        // 添加过期标记，但仍然返回缓存数据
+        return {
+          ...cachedData.data,
+          definitions: cachedData.data.definitions.map(def => 
+            def.includes('⚠️') ? def : `⚠️ ${def}`
+          )
+        };
+      }
+    }
+    
+    return errorResponse;
+  };
   
   try {
     // 如果不是强制刷新，正常检查缓存和本地词典
@@ -308,7 +464,20 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
       console.log('准备调用本地API代理查询单词:', normalizedWord);
       const wordInfo = await callLocalWordQueryAPI(normalizedWord, contextSentence, forceRefresh);
       
-      // 保存到缓存
+      // 防御性检查：确保返回的数据是有效的WordInfo对象
+      if (typeof wordInfo !== 'object' || wordInfo === null || !wordInfo.definitions || !Array.isArray(wordInfo.definitions)) {
+        console.error('本地API返回了无效的数据结构:', wordInfo);
+        return createErrorResponse('查询失败：API返回数据结构无效', true);
+      }
+      
+      // 检查是否是错误响应（来自拦截器）
+      if (wordInfo.error || wordInfo.isHtmlResponse || wordInfo.definitions[0].includes('查询失败')) {
+        console.warn('本地API返回了错误响应，但不是异常，将作为错误结果处理');
+        // 对于HTML响应或其他错误，不缓存，直接返回错误信息
+        return wordInfo;
+      }
+      
+      // 保存到缓存 - 只缓存有效的成功响应
       console.log('准备更新单词缓存:', normalizedWord);
       wordCache.set(normalizedWord, {
         data: wordInfo,
@@ -318,8 +487,8 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
       
       console.log('本地API代理查询成功，最终结果:', wordInfo);
       return wordInfo;
-    } catch (localApiError) {
-      console.error('本地API代理调用失败，尝试使用备用方案:', localApiError);
+    } catch (localApiError: any) {
+      console.error('本地API代理调用失败，尝试使用备用方案:', localApiError.message || localApiError);
       // 本地API失败，继续使用备用方案
     }
     
@@ -361,25 +530,35 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
           messages
         }, {
           headers: {
-            'Authorization': `Bearer ${VOLCANO_API_KEY}`
+            'Authorization': `Bearer ${VOLCANO_API_KEY}`,
+            'Accept': 'application/json'
           }
         }),
         timeoutPromise
       ]);
       
+      // 响应拦截器已经处理了HTML响应
+      // 检查是否有错误标记
+      if (response.data.error || response.data.isHtmlResponse) {
+        console.error('火山AI API返回错误响应:', response.data.error);
+        return createErrorResponse(`查询失败: ${response.data.error || 'AI服务错误'}`);
+      }
+      
       // 检查API响应结构
       if (!response.data || !response.data.choices || !response.data.choices[0] || !response.data.choices[0].message) {
         console.error('API响应格式错误，缺少必要字段:', response.data);
-        return {
-          phonetic: '',
-          definitions: ['查询失败：API响应格式错误'],
-          examples: []
-        };
+        return createErrorResponse('查询失败：AI API响应格式错误');
       }
       
       // 获取API响应内容
       const apiResponse = response.data.choices[0].message.content;
       console.log('火山AI API原始响应:', apiResponse);
+      
+      // 防御性检查：确保响应内容是字符串
+      if (typeof apiResponse !== 'string') {
+        console.error('AI API返回的内容不是字符串:', typeof apiResponse);
+        return createErrorResponse('查询失败：AI返回格式异常');
+      }
       
       // 解析API响应
       const wordInfo: WordInfo = {
@@ -400,7 +579,10 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
       // 提取释义
       const definitionMatch = apiResponse.match(/释义:(.*?)$/s);
       if (definitionMatch && definitionMatch[1]) {
-        wordInfo.definitions = definitionMatch[1].split(',').map((d: string) => d.trim());
+        wordInfo.definitions = definitionMatch[1]
+          .split(',')
+          .map((d: string) => d.trim())
+          .filter((d: string) => d.length > 0); // 过滤空字符串
         console.log('提取到的释义:', wordInfo.definitions);
       }
       
@@ -409,7 +591,7 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
         wordInfo.definitions = ['未找到详细释义'];
       }
       
-      // 保存到缓存
+      // 保存到缓存 - 只缓存有效的响应
       wordCache.set(normalizedWord, {
         data: wordInfo,
         timestamp: Date.now()
@@ -419,20 +601,20 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
       return wordInfo;
     } catch (timeoutError) {
       console.error('单词查询超时:', timeoutError);
-      return {
-        phonetic: '',
-        definitions: ['查询超时，请稍后重试'],
-        examples: []
-      };
+      return createErrorResponse('查询超时，请稍后重试');
     }
-  } catch (error) {
-    console.error('单词查询失败:', error);
+  } catch (error: any) {
+    console.error('单词查询失败:', error.message || error);
+    
+    // 检查是否是HTML相关的错误
+    const errorMessage = error.message || '';
+    if (errorMessage.toLowerCase().includes('html') || 
+        (error.response?.data?.isHtmlResponse)) {
+      return createErrorResponse('查询失败：服务器返回了HTML页面而非数据', true);
+    }
+    
     // 失败时返回基本信息，确保包含所有必要字段
-    return {
-      phonetic: '',
-      definitions: ['查询失败，请稍后重试'],
-      examples: []
-    };
+    return createErrorResponse('查询失败，请稍后重试');
   }
 }
 
