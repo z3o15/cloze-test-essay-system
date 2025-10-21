@@ -1,5 +1,15 @@
 import axios from 'axios'
 
+// 浏览器兼容的MD5实现
+async function md5(str: string): Promise<string> {
+  const crypto = window.crypto || (window as any).msCrypto;
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  const buffer = await crypto.subtle.digest('MD5', data);
+  const hashArray = Array.from(new Uint8Array(buffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // 创建axios实例
 const api = axios.create({
   timeout: 20000,
@@ -133,44 +143,215 @@ const localDictionary: Record<string, WordInfo> = {
 // 从环境变量获取API配置
 const VOLCANO_API_KEY = import.meta.env.VITE_VOLCANO_API_KEY || '';
 const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
-// 本地API代理地址
-const LOCAL_WORD_QUERY_API = '/api/word-query';
 
-// 调用本地API代理的函数
-export const callLocalWordQueryAPI = async (word: string, contextSentence?: string, forceRefresh: boolean = false): Promise<WordInfo> => {
+// 腾讯API配置
+const TENCENT_APP_ID = import.meta.env.VITE_TENCENT_APP_ID || '';
+const TENCENT_KEY = import.meta.env.VITE_TENCENT_KEY || '';
+const TENCENT_API_URL = 'https://api.ai.qq.com/fcgi-bin/nlp/nlp_worddict';
+
+// 百度API配置
+const BAIDU_APP_ID = import.meta.env.VITE_BAIDU_APP_ID || '';
+const BAIDU_SECRET_KEY = import.meta.env.VITE_BAIDU_SECRET_KEY || '';
+const BAIDU_API_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
+
+// 调用腾讯词典API
+const callTencentDictAPI = async (word: string): Promise<WordInfo> => {
   try {
-    console.log('调用本地API代理查询单词:', word);
+    if (!TENCENT_APP_ID || !TENCENT_KEY) {
+      throw new Error('腾讯API密钥未配置');
+    }
+
+    console.log('调用腾讯词典API查询单词:', word);
     
-    // 发送请求到本地API代理
-    const response = await api.post(LOCAL_WORD_QUERY_API, {
-      word,
-      contextSentence,
-      forceRefresh,
-      useBaidu: true // 优先使用百度翻译API
+    // 生成随机数和时间戳
+    const nonce = Math.floor(Math.random() * 1000000000).toString();
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    
+    // 构造请求参数
+  const params: {
+    app_id: string;
+    time_stamp: string;
+    nonce_str: string;
+    text: string;
+    sign: string;
+  } = {
+    app_id: TENCENT_APP_ID,
+    time_stamp: timestamp,
+    nonce_str: nonce,
+    text: word,
+    sign: ''
+  };
+    
+    // 生成签名
+  const signStr = `app_id=${TENCENT_APP_ID}&nonce_str=${nonce}&text=${encodeURIComponent(word)}&time_stamp=${timestamp}&key=${TENCENT_KEY}`;
+  const sign = (await md5(signStr)).toUpperCase();
+    params['sign'] = sign;
+    
+    // 发送POST请求
+    const response = await api.post(TENCENT_API_URL, new URLSearchParams(params));
+    
+    // 处理响应
+    if (response.data && response.data.ret === 0) {
+      // 提取音标
+      let phonetic = '';
+      if (response.data.data && response.data.data.phonetic) {
+        phonetic = response.data.data.phonetic;
+      }
+      
+      // 提取释义
+      const definitions: string[] = [];
+      if (response.data.data && response.data.data.explanations) {
+        response.data.data.explanations.forEach((exp: any) => {
+          if (exp.pos && exp.def) {
+            definitions.push(`${exp.pos} ${exp.def}`);
+          } else if (exp.def) {
+            definitions.push(exp.def);
+          }
+        });
+      }
+      
+      // 提取例句
+      const examples: string[] = [];
+      if (response.data.data && response.data.data.examples) {
+        response.data.data.examples.forEach((example: any) => {
+          if (example.en && example.zh) {
+            examples.push(`${example.en}\n${example.zh}`);
+          }
+        });
+      }
+      
+      return {
+        phonetic,
+        definitions: definitions.length > 0 ? definitions : ['未找到释义'],
+        examples
+      };
+    } else {
+      throw new Error(`腾讯API错误: ${response.data.msg || '未知错误'}`);
+    }
+  } catch (error) {
+    console.error('腾讯词典API调用失败:', error);
+    throw error;
+  }
+};
+
+// 调用百度翻译API
+const callBaiduTranslateAPI = async (word: string): Promise<WordInfo> => {
+  try {
+    if (!BAIDU_APP_ID || !BAIDU_SECRET_KEY) {
+      throw new Error('百度API密钥未配置');
+    }
+
+    console.log('调用百度翻译API查询单词:', word);
+    
+    // 生成随机数和时间戳
+    const salt = Math.floor(Math.random() * 1000000000).toString();
+    
+    // 构建签名
+  const signStr = BAIDU_APP_ID + word + salt + BAIDU_SECRET_KEY;
+  const sign = await md5(signStr);
+    
+    // 发送GET请求
+    const response = await api.get(BAIDU_API_URL, {
+      params: {
+        q: word,
+        from: 'en',
+        to: 'zh',
+        appid: BAIDU_APP_ID,
+        salt,
+        sign
+      }
     });
     
-    // 检查响应
-    if (response.data) {
-      // 确保返回的对象符合WordInfo接口
-      const wordInfo: WordInfo = {
-        phonetic: response.data.phonetic || '',
-        definitions: response.data.definitions || ['未找到释义'],
-        examples: response.data.examples || []
+    // 处理响应
+    if (response.data && response.data.trans_result && response.data.trans_result.length > 0) {
+      return {
+        phonetic: '',
+        definitions: [response.data.trans_result[0].dst],
+        examples: []
       };
+    } else {
+      throw new Error(`百度API错误: ${response.data.error_msg || '未知错误'}`);
+    }
+  } catch (error) {
+    console.error('百度翻译API调用失败:', error);
+    throw error;
+  }
+};
+
+// 调用火山AI API
+const callVolcanoAPI = async (word: string): Promise<WordInfo> => {
+  try {
+    if (!VOLCANO_API_KEY) {
+      throw new Error('火山AI API密钥未配置');
+    }
+
+    console.log('调用火山AI API查询单词:', word);
+    
+    // 构建提示词
+    let prompt = `请提供单词"${word}"的以下信息：\n1. 音标\n2. 考研核心释义（优先显示常考含义）\n`;
+    prompt += '请使用以下格式返回，不要添加其他信息：\n音标:/phonetic/\n释义:definition1,definition2,...';
+    
+    // 构建请求消息
+    const messages = [
+      { role: 'system', content: '你是一个专业的英语词典助手，专注于提供准确的单词释义。请严格按照要求的格式返回信息。' },
+      { role: 'user', content: prompt }
+    ];
+    
+    // 发送请求
+    const response = await api.post(VOLCANO_API_URL, {
+      model: 'doubao-1-5-lite-32k-250115',
+      messages
+    }, {
+      headers: {
+        'Authorization': `Bearer ${VOLCANO_API_KEY}`
+      }
+    });
+    
+    // 处理响应
+    if (response.data && response.data.choices && response.data.choices[0] && response.data.choices[0].message) {
+      const apiResponse = response.data.choices[0].message.content;
+      
+      const wordInfo: WordInfo = {
+        phonetic: '',
+        definitions: [],
+        examples: []
+      };
+      
+      // 提取音标
+      const phoneticMatch = apiResponse.match(/音标:\/(.*?)\//);
+      if (phoneticMatch && phoneticMatch[1]) {
+        wordInfo.phonetic = phoneticMatch[1];
+      }
+      
+      // 提取释义
+      const definitionMatch = apiResponse.match(/释义:(.*?)$/s);
+      if (definitionMatch && definitionMatch[1]) {
+        wordInfo.definitions = definitionMatch[1].split(',').map((d: string) => d.trim());
+      }
+      
+      if (wordInfo.definitions.length === 0) {
+        wordInfo.definitions = ['未找到详细释义'];
+      }
       
       return wordInfo;
     } else {
-      console.error('本地API代理响应格式错误:', response.data);
-      return {
-        phonetic: '',
-        definitions: ['未找到释义'],
-        examples: []
-      };
+      throw new Error('火山API响应格式错误');
     }
   } catch (error) {
-    console.error('本地API代理调用失败:', error);
+    console.error('火山AI API调用失败:', error);
     throw error;
   }
+};
+
+// 统一翻译结果格式的函数
+const normalizeTranslationResponse = (response: WordInfo): WordInfo => {
+  return {
+    phonetic: response.phonetic || '',
+    definitions: response.definitions && response.definitions.length > 0 
+      ? response.definitions 
+      : ['未找到释义'],
+    examples: response.examples || []
+  };
 };
 
 // 调用API的函数
@@ -208,127 +389,102 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
       console.log('强制刷新模式，跳过缓存和本地词典，直接调用API:', normalizedWord);
     }
     
-    // 3. 使用本地API代理（会自动优先使用百度翻译API）
+    // 3. 尝试调用腾讯词典API（直接调用，不再通过边缘函数）
     try {
-      const wordInfo = await callLocalWordQueryAPI(normalizedWord, contextSentence, forceRefresh);
+      // 添加请求超时控制，避免长时间等待
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('腾讯API请求超时')), 3000)
+      );
       
-      // 保存到缓存
-      wordCache.set(normalizedWord, {
-        data: wordInfo,
-        timestamp: Date.now()
-      });
-      
-      console.log('本地API代理查询成功，结果:', wordInfo);
-      return wordInfo;
-    } catch (localApiError) {
-      console.error('本地API代理调用失败，尝试使用备用方案:', localApiError);
-      // 本地API失败，继续使用备用方案
-    }
-    
-    // 4. 如果没有百度翻译API密钥或者调用失败，使用火山AI API作为备用
-    if (!VOLCANO_API_KEY) {
-      console.warn('API密钥未配置，使用简化响应');
-      const fallbackResponse: WordInfo = {
-        phonetic: '',
-        definitions: [`单词"${word}"的释义需要API密钥`],
-        examples: []
-      };
-      return fallbackResponse;
-    }
-    
-    // 5. 调用火山AI API作为备用
-    console.log('调用火山AI API查询单词（备用方案）:', normalizedWord);
-    
-    // 构建提示词 - 移除例句相关要求，优化格式
-    let prompt = `请提供单词"${word}"的以下信息：\n1. 音标\n2. 考研核心释义（优先显示常考含义）\n`;
-    
-    prompt += '请使用以下格式返回，不要添加其他信息：\n音标:/phonetic/\n释义:definition1,definition2,...';
-    
-    // 构建请求消息
-    const messages = [
-      { role: 'system', content: '你是一个专业的英语词典助手，专注于提供准确的单词释义。请严格按照要求的格式返回信息。' },
-      { role: 'user', content: prompt }
-    ];
-    
-    // 设置请求超时（提高用户体验）
-    const timeoutPromise = new Promise<never>((_, reject) => 
-      setTimeout(() => reject(new Error('请求超时')), 3000)
-    );
-    
-    try {
-      // 使用Promise.race添加请求超时处理
-      const response = await Promise.race([
-        api.post(VOLCANO_API_URL, {
-          model: 'doubao-1-5-lite-32k-250115',
-          messages
-        }, {
-          headers: {
-            'Authorization': `Bearer ${VOLCANO_API_KEY}`
-          }
-        }),
+      const tencentResult = await Promise.race([
+        callTencentDictAPI(normalizedWord),
         timeoutPromise
       ]);
       
-      // 检查API响应结构
-      if (!response.data || !response.data.choices || !response.data.choices[0] || !response.data.choices[0].message) {
-        console.error('API响应格式错误，缺少必要字段:', response.data);
-        return {
-          phonetic: '',
-          definitions: ['查询失败：API响应格式错误'],
-          examples: []
-        };
-      }
-      
-      // 获取API响应内容
-      const apiResponse = response.data.choices[0].message.content;
-      console.log('火山AI API原始响应:', apiResponse);
-      
-      // 解析API响应
-      const wordInfo: WordInfo = {
-        phonetic: '',
-        definitions: [],
-        examples: [] // 保持兼容性，但不再处理
-      };
-      
-      // 提取音标
-      const phoneticMatch = apiResponse.match(/音标:\/(.*?)\//);
-      if (phoneticMatch && phoneticMatch[1]) {
-        wordInfo.phonetic = phoneticMatch[1];
-        console.log('提取到的音标:', wordInfo.phonetic);
-      } else {
-        console.log('未找到音标信息');
-      }
-      
-      // 提取释义
-      const definitionMatch = apiResponse.match(/释义:(.*?)$/s);
-      if (definitionMatch && definitionMatch[1]) {
-        wordInfo.definitions = definitionMatch[1].split(',').map((d: string) => d.trim());
-        console.log('提取到的释义:', wordInfo.definitions);
-      }
-      
-      // 如果没有找到任何信息，使用默认提示
-      if (wordInfo.definitions.length === 0) {
-        wordInfo.definitions = ['未找到详细释义'];
-      }
+      // 统一响应格式
+      const normalizedResult = normalizeTranslationResponse(tencentResult);
       
       // 保存到缓存
       wordCache.set(normalizedWord, {
-        data: wordInfo,
+        data: normalizedResult,
         timestamp: Date.now()
       });
       
-      console.log('最终的单词信息:', wordInfo);
-      return wordInfo;
-    } catch (timeoutError) {
-      console.error('单词查询超时:', timeoutError);
-      return {
-        phonetic: '',
-        definitions: ['查询超时，请稍后重试'],
-        examples: []
-      };
+      console.log('腾讯词典API查询成功，结果:', normalizedResult);
+      return normalizedResult;
+    } catch (tencentError) {
+      console.error('腾讯词典API调用失败或超时，尝试使用火山AI API:', tencentError);
+      // 腾讯API失败，继续尝试火山AI API
     }
+    
+    // 4. 尝试调用火山AI API
+    try {
+      if (!VOLCANO_API_KEY) {
+        throw new Error('火山AI API密钥未配置');
+      }
+      
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('火山API请求超时')), 3000)
+      );
+      
+      const volcanoResult = await Promise.race([
+        callVolcanoAPI(normalizedWord),
+        timeoutPromise
+      ]);
+      
+      // 统一响应格式
+      const normalizedResult = normalizeTranslationResponse(volcanoResult);
+      
+      // 保存到缓存
+      wordCache.set(normalizedWord, {
+        data: normalizedResult,
+        timestamp: Date.now()
+      });
+      
+      console.log('火山AI API查询成功，结果:', normalizedResult);
+      return normalizedResult;
+    } catch (volcanoError) {
+      console.error('火山AI API调用失败或超时，尝试使用百度翻译API:', volcanoError);
+      // 火山AI API失败，继续尝试百度翻译API
+    }
+    
+    // 5. 最后尝试百度翻译API
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('百度API请求超时')), 3000)
+      );
+      
+      const baiduResult = await Promise.race([
+        callBaiduTranslateAPI(normalizedWord),
+        timeoutPromise
+      ]);
+      
+      // 统一响应格式
+      const normalizedResult = normalizeTranslationResponse(baiduResult);
+      
+      // 保存到缓存
+      wordCache.set(normalizedWord, {
+        data: normalizedResult,
+        timestamp: Date.now()
+      });
+      
+      console.log('百度翻译API查询成功，结果:', normalizedResult);
+      return normalizedResult;
+    } catch (baiduError) {
+      console.error('百度翻译API调用失败或超时，使用默认响应:', baiduError);
+      // 所有API都失败，使用默认响应
+    }
+    
+    // 所有API都失败时的默认响应
+    const defaultResponse: WordInfo = {
+      phonetic: '',
+      definitions: ['无法连接到翻译服务，请检查网络连接或API密钥配置'],
+      examples: []
+    };
+    
+    return defaultResponse;
   } catch (error) {
-    console.error('单词查询失败:', error);
+    console.error('单词查询过程中出现错误:', error);
     // 失败时返回基本信息，确保包含所有必要字段
     return {
       phonetic: '',
