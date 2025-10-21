@@ -16,7 +16,68 @@ const BAIDU_APP_ID = process.env.BAIDU_APP_ID || '';
 const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY || '';
 const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
 
-// 调用百度翻译API的函数
+// 调用腾讯词典API获取单词信息
+const callTencentDictAPI = async (word: string): Promise<WordInfo> => {
+  const TENCENT_APP_ID = process.env.TENCENT_APP_ID || '';
+  const TENCENT_APP_KEY = process.env.TENCENT_APP_KEY || '';
+  const TENCENT_DICT_URL = process.env.TENCENT_DICT_URL || 'https://api.ai.qq.com/fcgi-bin/nlp/nlp_worddict';
+  
+  if (!TENCENT_APP_ID || !TENCENT_APP_KEY) {
+    throw new Error('腾讯翻译API密钥未配置');
+  }
+
+  // 生成随机字符串
+  const nonceStr = Math.random().toString(36).substr(2, 15);
+  // 时间戳
+  const timeStamp = Math.floor(Date.now() / 1000).toString();
+  
+  // 构建签名字符串
+  const params: any = {
+    app_id: TENCENT_APP_ID,
+    nonce_str: nonceStr,
+    time_stamp: timeStamp,
+    word: word
+  };
+
+  // 对参数进行排序并拼接签名
+  const sortedKeys = Object.keys(params).sort();
+  let signStr = '';
+  for (const key of sortedKeys) {
+    signStr += `${key}=${params[key]}&`;
+  }
+  signStr += `app_key=${TENCENT_APP_KEY}`;
+  
+  // 计算MD5签名
+  const sign = crypto
+    .createHash('md5')
+    .update(signStr)
+    .digest('hex')
+    .toUpperCase();
+
+  params.sign = sign;
+
+  try {
+    const response = await axios.post(TENCENT_DICT_URL, new URLSearchParams(params));
+    
+    // 检查响应
+    if (response.data && response.data.ret === 0 && response.data.data) {
+      const data = response.data.data;
+      const wordInfo: WordInfo = {
+        phonetic: data.phonetic || '',
+        definitions: data.translation || [],
+        examples: data.examples || []
+      };
+      return wordInfo;
+    } else {
+      throw new Error('腾讯词典API返回格式异常');
+    }
+  } catch (error) {
+    console.error('腾讯词典API调用失败:', error);
+    throw error;
+  }
+};
+
+// 调用百度翻译API的函数（保留作为备用）
 const callBaiduTranslateAPI = async (word: string): Promise<WordInfo> => {
   if (!BAIDU_APP_ID || !BAIDU_SECRET_KEY) {
     throw new Error('百度翻译API密钥未配置');
@@ -175,7 +236,7 @@ export default async function onRequest(context: any) {
       body = {};
     }
     
-    const { word, contextSentence, useBaidu = true, skipCache = false } = body;
+    const { word, contextSentence, useTencent = true, useBaidu, skipCache = false } = body;
     
     if (!word || typeof word !== 'string') {
       return new Response(JSON.stringify({ error: '单词内容不能为空' }), {
@@ -186,6 +247,10 @@ export default async function onRequest(context: any) {
         }
       });
     }
+    
+    // 为向后兼容，支持useBaidu参数，但优先使用useTencent
+    const finalUseTencent = useTencent || (useBaidu === undefined);
+    const finalUseBaidu = useBaidu !== false;
 
     // 尝试从缓存获取（除非明确跳过缓存）
     if (!skipCache) {
@@ -207,8 +272,32 @@ export default async function onRequest(context: any) {
     let wordInfo: WordInfo;
     let provider: string;
 
-    // 优先使用百度翻译API
-    if (useBaidu && BAIDU_APP_ID && BAIDU_SECRET_KEY) {
+    // 优先使用腾讯词典API
+    if (finalUseTencent && process.env.TENCENT_APP_ID && process.env.TENCENT_APP_KEY) {
+      try {
+        wordInfo = await callTencentDictAPI(word);
+        provider = 'tencent';
+        // 缓存结果
+        await cacheWordResult(word, !!contextSentence, wordInfo, provider);
+        return new Response(JSON.stringify({
+          ...wordInfo,
+          provider,
+          fromCache: false
+        }), {
+          status: 200,
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json'
+          }
+        });
+      } catch (tencentError) {
+        console.error('腾讯词典API调用失败，尝试使用百度翻译API:', tencentError);
+        // 继续使用百度翻译API作为备用
+      }
+    }
+
+    // 使用百度翻译API作为备用
+    if (finalUseBaidu && BAIDU_APP_ID && BAIDU_SECRET_KEY) {
       try {
         wordInfo = await callBaiduTranslateAPI(word);
         provider = 'baidu';
