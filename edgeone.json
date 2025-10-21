@@ -10,6 +10,14 @@
       "destination": "/assets/$1"
     },
     {
+      "source": "/(.*\\.js)",
+      "destination": "/assets/$1"
+    },
+    {
+      "source": "/(.*\\.css)",
+      "destination": "/assets/$1"
+    },
+    {
       "source": "/*",
       "destination": "/index.html"
     }
@@ -18,46 +26,22 @@
     {
       "source": "/*",
       "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type"
-        }
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
       ]
     },
     {
       "source": "/assets/*.js",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/javascript"
-        }
-      ]
+      "headers": [{ "key": "Content-Type", "value": "application/javascript; charset=utf-8" }]
     },
     {
       "source": "/assets/*.css",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "text/css"
-        }
-      ]
+      "headers": [{ "key": "Content-Type", "value": "text/css; charset=utf-8" }]
     },
     {
       "source": "/assets/*.svg",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "image/svg+xml"
-        }
-      ]
+      "headers": [{ "key": "Content-Type", "value": "image/svg+xml" }]
     }
   ],
   "functions": {
@@ -66,18 +50,9 @@
       "glob": "edge-functions/**/*.ts"
     },
     "routes": [
-      {
-        "path": "/translate",
-        "function": "edge-functions/translate.ts"
-      },
-      {
-        "path": "/api/translate",
-        "function": "edge-functions/translate.ts"
-      },
-      {
-        "path": "/api/word-query",
-        "function": "edge-functions/word-query.ts"
-      }
+      { "path": "/translate", "function": "edge-functions/translate.ts" },
+      { "path": "/api/translate", "function": "edge-functions/translate.ts" },
+      { "path": "/api/word-query", "function": "edge-functions/word-query.ts" }
     ]
   },
   "environment": {
