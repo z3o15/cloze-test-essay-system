@@ -3,18 +3,19 @@ import crypto from 'crypto';
 import { kv } from '@vercel/kv';
 
 // EdgeOne Pages兼容的请求和响应类型
-type Request = {
+interface Request {
   method: string;
   headers: Record<string, string | string[]>;
-  body: any;
-};
+  json?: () => Promise<any>;
+  body?: any;
+}
 
-type Response = {
+interface Response {
   status: (code: number) => Response;
   json: (data: any) => Promise<void>;
   end: () => Promise<void>;
   setHeader: (key: string, value: string) => void;
-};
+}
 
 // 允许的源
 const ALLOWED_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:8080', 'http://localhost:8081']
@@ -156,28 +157,28 @@ async function cacheTranslationResult(
   }
 }
 
-export default async function handler(
-  request: Request,
-  response: Response
-) {
+// 处理POST请求的函数
+export async function onRequestPost(request: Request, response: Response) {
   try {
     // 设置CORS头
-    response.setHeader('Access-Control-Allow-Origin', '*')
-    response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
-    // 处理预检请求
-    if (request.method === 'OPTIONS') {
-      return response.status(204).end();
-    }
-
-    // 验证请求方法
-    if (request.method !== 'POST') {
-      return response.status(405).json({ error: 'Method Not Allowed' });
-    }
+    response.setHeader('Access-Control-Allow-Origin', '*');
+    response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     // 获取请求体数据
-    const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
+    let body;
+    try {
+      if (request.body) {
+        body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
+      } else if (typeof request.json === 'function') {
+        body = await request.json();
+      } else {
+        body = {};
+      }
+    } catch (e) {
+      console.error('解析请求体失败:', e);
+      body = {};
+    }
     const { text, targetLanguage = 'zh', sourceLanguage = 'en', useBaidu = true, skipCache = false } = body;
     
     if (!text || typeof text !== 'string') {
@@ -236,4 +237,14 @@ export default async function handler(
       details: (error as any)?.response?.data || null
     });
   }
+}
+
+// 处理OPTIONS请求的函数
+export async function onRequestOptions(request: Request, response: Response) {
+  // 设置CORS头
+  response.setHeader('Access-Control-Allow-Origin', '*');
+  response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  return response.status(204).end();
 }
