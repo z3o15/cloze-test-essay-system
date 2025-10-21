@@ -10,6 +10,10 @@
       "target": "/assets/$1"
     },
     {
+      "source": "/api/(.*)",
+      "target": "/api/$1"
+    },
+    {
       "source": "/(.*)",
       "target": "/index.html"
     }
