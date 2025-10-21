@@ -1,9 +1,14 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
+import crypto from 'crypto';
+import { kv } from '@vercel/kv';
 
 // 从环境变量获取API密钥，而不是硬编码
 const VOLCANO_API_KEY = process.env.VOLCANO_API_KEY;
 const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
+const BAIDU_APP_ID = process.env.BAIDU_APP_ID;
+const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY;
+const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
 
 // 定义单词信息接口
 export interface WordInfo {
@@ -11,6 +16,51 @@ export interface WordInfo {
   definitions: string[];
   examples?: string[];
 }
+
+// 调用百度翻译API的函数
+const callBaiduTranslateAPI = async (word: string): Promise<WordInfo> => {
+  if (!BAIDU_APP_ID || !BAIDU_SECRET_KEY) {
+    throw new Error('百度翻译API密钥未配置');
+  }
+
+  try {
+    // 生成随机数
+    const salt = Math.floor(Math.random() * 1000000000).toString();
+    // 构建签名
+    const sign = crypto.createHash('md5').update(`${BAIDU_APP_ID}${word}${salt}${BAIDU_SECRET_KEY}`).digest('hex');
+    
+    // 构建请求参数
+    const params = {
+      q: word,
+      from: 'en',
+      to: 'zh',
+      appid: BAIDU_APP_ID,
+      salt: salt,
+      sign: sign
+    };
+    
+    // 发送请求
+    const response = await axios.get(BAIDU_TRANSLATE_URL, { params });
+    
+    // 检查响应
+    if (response.data && response.data.trans_result && response.data.trans_result.length > 0) {
+      const translation = response.data.trans_result[0].dst;
+      
+      // 构建WordInfo对象
+      const wordInfo: WordInfo = {
+        phonetic: '', // 百度翻译API不直接提供音标
+        definitions: [translation]
+      };
+      
+      return wordInfo;
+    } else {
+      throw new Error('百度翻译API响应格式错误');
+    }
+  } catch (error) {
+    console.error('百度翻译API调用失败:', error);
+    throw error;
+  }
+};
 
 // 调用火山AI接口的通用函数
 const callVolcanoAPI = async (messages: { role: string; content: string }[]): Promise<string> => {
@@ -37,6 +87,46 @@ const callVolcanoAPI = async (messages: { role: string; content: string }[]): Pr
   }
 };
 
+// 生成单词查询缓存键
+function generateWordCacheKey(word: string, withContext: boolean): string {
+  return `word:query:${withContext ? 'with_context:' : ''}${crypto.createHash('md5').update(word).digest('hex')}`;
+}
+
+// 从缓存获取单词查询结果
+async function getWordFromCache(word: string, withContext: boolean): Promise<WordInfo | null> {
+  try {
+    const cacheKey = generateWordCacheKey(word, withContext);
+    const cachedData = await kv.get<string>(cacheKey);
+    
+    if (cachedData) {
+      console.log('从缓存获取单词查询结果');
+      return JSON.parse(cachedData);
+    }
+    return null;
+  } catch (error) {
+    console.error('从缓存读取失败:', error);
+    return null;
+  }
+}
+
+// 缓存单词查询结果
+async function cacheWordResult(word: string, withContext: boolean, wordInfo: WordInfo, provider: string): Promise<void> {
+  try {
+    const cacheKey = generateWordCacheKey(word, withContext);
+    const cacheData = JSON.stringify({
+      ...wordInfo,
+      provider,
+      timestamp: Date.now()
+    });
+    
+    // 缓存30天（2592000秒）
+    await kv.set(cacheKey, cacheData, { ex: 2592000 });
+    console.log('单词查询结果已缓存');
+  } catch (error) {
+    console.error('缓存单词查询结果失败:', error);
+  }
+}
+
 export default async function handler(
   request: VercelRequest,
   response: VercelResponse
@@ -58,13 +148,46 @@ export default async function handler(
     }
 
     // 获取请求体数据
-    const { word, contextSentence } = request.body;
+    const { word, contextSentence, useBaidu = true, skipCache = false } = request.body;
     
     if (!word || typeof word !== 'string') {
       return response.status(400).json({ error: '单词内容不能为空' });
     }
 
+    // 尝试从缓存获取（除非明确跳过缓存）
+    if (!skipCache) {
+      const cachedResult = await getWordFromCache(word, !!contextSentence);
+      if (cachedResult) {
+        return response.status(200).json({
+          ...cachedResult,
+          fromCache: true
+        });
+      }
+    }
+
+    let wordInfo: WordInfo;
+    let provider: string;
+
+    // 优先使用百度翻译API
+    if (useBaidu && BAIDU_APP_ID && BAIDU_SECRET_KEY) {
+      try {
+        wordInfo = await callBaiduTranslateAPI(word);
+        provider = 'baidu';
+        // 缓存结果
+        await cacheWordResult(word, !!contextSentence, wordInfo, provider);
+        return response.status(200).json({
+          ...wordInfo,
+          provider,
+          fromCache: false
+        });
+      } catch (baiduError) {
+        console.error('百度翻译API调用失败，尝试使用火山AI:', baiduError);
+        // 继续使用火山AI作为备用
+      }
+    }
+
     // 使用火山AI接口查询单词信息
+    provider = 'volcano';
     let prompt = `请提供单词"${word}"的以下信息：\n1. 音标\n2. 考研核心释义（优先显示常考含义）\n`;
     
     if (contextSentence) {
@@ -104,7 +227,14 @@ export default async function handler(
       wordInfo.examples = exampleMatch[1].split(',').map(e => e.trim());
     }
     
-    return response.status(200).json(wordInfo);
+    // 缓存结果
+    await cacheWordResult(word, !!contextSentence, wordInfo, provider);
+    
+    return response.status(200).json({
+      ...wordInfo,
+      provider,
+      fromCache: false
+    });
   } catch (error) {
     console.error('单词查询处理错误:', error);
     return response.status(500).json({ 
