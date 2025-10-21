@@ -1,0 +1,36 @@
+{
+  "routes": [
+    {
+      "routePath": "/api/translate",
+      "mountPath": "/api",
+      "method": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "module": [
+        "edge-functions/api/translate.ts:onRequest"
+      ]
+    },
+    {
+      "routePath": "/translate",
+      "mountPath": "/",
+      "method": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "module": [
+        "edge-functions/translate.ts:onRequest"
+      ]
+    }
+  ]
+}

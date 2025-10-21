@@ -1,0 +1,71 @@
+{
+  "edgeFunctionsRoutes": [
+    {
+      "routePath": "/api/translate",
+      "mountPath": "/api",
+      "method": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "module": [
+        "edge-functions/api/translate.ts:onRequest"
+      ]
+    },
+    {
+      "routePath": "/translate",
+      "mountPath": "/",
+      "method": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "PATCH",
+        "HEAD",
+        "OPTIONS"
+      ],
+      "module": [
+        "edge-functions/translate.ts:onRequest"
+      ]
+    }
+  ],
+  "conf": {
+    "headers": [
+      {
+        "source": "/*",
+        "headers": [
+          {
+            "key": "Access-Control-Allow-Origin",
+            "value": "*"
+          },
+          {
+            "key": "Access-Control-Allow-Methods",
+            "value": "GET, POST, OPTIONS"
+          },
+          {
+            "key": "Access-Control-Allow-Headers",
+            "value": "Content-Type"
+          }
+        ]
+      }
+    ],
+    "redirects": [],
+    "rewrites": [
+      {
+        "source": "/assets/*",
+        "destination": "$0"
+      },
+      {
+        "source": "/*",
+        "destination": "/index.html"
+      }
+    ],
+    "caches": [],
+    "has404": false
+  },
+  "has404": false
+}
