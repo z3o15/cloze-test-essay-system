@@ -18,7 +18,67 @@ export interface TranslationResult {
   fromCache?: boolean;
 }
 
-// 调用百度翻译API
+// 腾讯翻译API调用函数
+const callTencentTranslateAPI = async (
+  text: string,
+  from: string = 'auto',
+  to: string = 'zh'
+): Promise<string> => {
+  const TENCENT_APP_ID = process.env.TENCENT_APP_ID || '';
+  const TENCENT_APP_KEY = process.env.TENCENT_APP_KEY || '';
+  const TENCENT_TRANSLATE_URL = process.env.TENCENT_TRANSLATE_URL || 'https://api.ai.qq.com/fcgi-bin/nlp/nlp_texttranslate';
+  
+  if (!TENCENT_APP_ID || !TENCENT_APP_KEY) {
+    throw new Error('腾讯翻译API密钥未配置');
+  }
+
+  // 生成随机字符串
+  const nonceStr = Math.random().toString(36).substr(2, 15);
+  // 时间戳
+  const timeStamp = Math.floor(Date.now() / 1000).toString();
+  
+  // 构建签名字符串
+  const params: any = {
+    app_id: TENCENT_APP_ID,
+    nonce_str: nonceStr,
+    time_stamp: timeStamp,
+    text: text,
+    source: from === 'auto' ? 'auto' : from,
+    target: to
+  };
+
+  // 对参数进行排序并拼接签名
+  const sortedKeys = Object.keys(params).sort();
+  let signStr = '';
+  for (const key of sortedKeys) {
+    signStr += `${key}=${params[key]}&`;
+  }
+  signStr += `app_key=${TENCENT_APP_KEY}`;
+  
+  // 计算MD5签名
+  const sign = crypto
+    .createHash('md5')
+    .update(signStr)
+    .digest('hex')
+    .toUpperCase();
+
+  params.sign = sign;
+
+  try {
+    const response = await axios.post(TENCENT_TRANSLATE_URL, new URLSearchParams(params));
+    
+    if (response.data.ret === 0 && response.data.data) {
+      return response.data.data.target_text;
+    } else {
+      throw new Error(`腾讯API错误: ${response.data.msg || '未知错误'}`);
+    }
+  } catch (error) {
+    console.error('腾讯翻译API调用失败:', error);
+    throw error;
+  }
+};
+
+// 调用百度翻译API（保留作为备用）
 const callBaiduTranslateAPI = async (
   text: string,
   from: string = 'auto',
@@ -195,7 +255,11 @@ export default async function onRequest(context: any) {
       body = {};
     }
     
-    const { text, from = 'auto', to = 'zh', useBaidu = true, skipCache = false } = body;
+    const { text, from = 'auto', to = 'zh', useTencent = true, useBaidu, skipCache = false } = body;
+    
+    // 为向后兼容，支持useBaidu参数，但优先使用useTencent
+    const finalUseTencent = useTencent || (useBaidu === undefined);
+    const finalUseBaidu = useBaidu !== false;
     
     // 参数验证
     if (!text || typeof text !== 'string') {
@@ -241,7 +305,38 @@ export default async function onRequest(context: any) {
     let translatedText: string;
     let provider: string;
 
-    // 优先使用百度翻译API
+    // 优先使用腾讯翻译API
+    const TENCENT_APP_ID = process.env.TENCENT_APP_ID || '';
+    const TENCENT_APP_KEY = process.env.TENCENT_APP_KEY || '';
+    
+    if ((useTencent || !useBaidu) && TENCENT_APP_ID && TENCENT_APP_KEY) {
+      try {
+        translatedText = await callTencentTranslateAPI(text, from, to);
+        provider = 'tencent';
+        
+        // 缓存结果
+        await cacheTranslationResult(text, from, to, translatedText);
+        
+        return new Response(JSON.stringify({
+          translatedText,
+          from,
+          to,
+          provider,
+          fromCache: false
+        }), {
+          status: 200,
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json'
+          }
+        });
+      } catch (tencentError) {
+        console.error('腾讯翻译API调用失败，尝试使用百度翻译:', tencentError);
+        // 继续使用百度翻译作为备用
+      }
+    }
+
+    // 备用使用百度翻译API
     if (useBaidu && BAIDU_APP_ID && BAIDU_SECRET_KEY) {
       try {
         translatedText = await callBaiduTranslateAPI(text, from, to);
