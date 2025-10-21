@@ -2,34 +2,19 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { kv } from '@vercel/kv';
 
-// EdgeOne Pages兼容的请求和响应类型
-interface Request {
-  method: string;
-  headers: Record<string, string | string[]>;
-  json?: () => Promise<any>;
-  body?: any;
-}
-
-interface Response {
-  status: (code: number) => Response;
-  json: (data: any) => Promise<void>;
-  end: () => Promise<void>;
-  setHeader: (key: string, value: string) => void;
-}
-
-// 从环境变量获取API密钥，而不是硬编码
-const VOLCANO_API_KEY = process.env.VOLCANO_API_KEY;
-const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
-const BAIDU_APP_ID = process.env.BAIDU_APP_ID;
-const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY;
-const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
-
 // 定义单词信息接口
 export interface WordInfo {
   phonetic: string;
   definitions: string[];
   examples?: string[];
 }
+
+// 从环境变量获取API密钥
+const VOLCANO_API_KEY = process.env.VOLCANO_API_KEY || '';
+const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
+const BAIDU_APP_ID = process.env.BAIDU_APP_ID || '';
+const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY || '';
+const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
 
 // 调用百度翻译API的函数
 const callBaiduTranslateAPI = async (word: string): Promise<WordInfo> => {
@@ -68,7 +53,7 @@ const callBaiduTranslateAPI = async (word: string): Promise<WordInfo> => {
       
       return wordInfo;
     } else {
-      throw new Error('百度翻译API响应格式错误');
+      throw new Error('百度翻译API返回格式异常');
     }
   } catch (error) {
     console.error('百度翻译API调用失败:', error);
@@ -76,41 +61,50 @@ const callBaiduTranslateAPI = async (word: string): Promise<WordInfo> => {
   }
 };
 
-// 调用火山AI接口的通用函数
-const callVolcanoAPI = async (messages: { role: string; content: string }[]): Promise<string> => {
+// 调用火山AI API的函数
+const callVolcanoAPI = async (messages: any[]): Promise<string> => {
   if (!VOLCANO_API_KEY) {
-    throw new Error('API密钥未配置');
+    throw new Error('火山AI API密钥未配置');
   }
 
   try {
-    const response = await axios.post(VOLCANO_API_URL, {
-      model: 'doubao-1-5-lite-32k-250115',
-      messages
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${VOLCANO_API_KEY}`
+    const response = await axios.post(
+      VOLCANO_API_URL,
+      {
+        model: 'ep-20240321183314-g4h44',
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 1000
       },
-      timeout: 20000
-    });
-    
-    return response.data.choices[0].message.content;
+      {
+        headers: {
+          'Authorization': `Bearer ${VOLCANO_API_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (response.data && response.data.choices && response.data.choices.length > 0) {
+      return response.data.choices[0].message.content;
+    } else {
+      throw new Error('火山AI API返回格式异常');
+    }
   } catch (error) {
-    console.error('火山AI接口调用失败:', error);
+    console.error('火山AI API调用失败:', error);
     throw error;
   }
 };
 
-// 生成单词查询缓存键
+// 生成单词缓存键
 function generateWordCacheKey(word: string, withContext: boolean): string {
-  return `word:query:${withContext ? 'with_context:' : ''}${crypto.createHash('md5').update(word).digest('hex')}`;
+  return `word_${word}_${withContext ? 'with_context' : 'without_context'}`;
 }
 
-// 从缓存获取单词查询结果
-async function getWordFromCache(word: string, withContext: boolean): Promise<WordInfo | null> {
+// 从缓存获取单词信息
+async function getWordFromCache(word: string, withContext: boolean): Promise<any> {
   try {
     const cacheKey = generateWordCacheKey(word, withContext);
-    const cachedData = await kv.get<string>(cacheKey);
+    const cachedData = await kv.get(cacheKey);
     
     if (cachedData) {
       console.log('从缓存获取单词查询结果');
@@ -141,41 +135,71 @@ async function cacheWordResult(word: string, withContext: boolean, wordInfo: Wor
   }
 }
 
-// 处理POST请求的函数
-export async function onRequestPost(request: Request, response: Response) {
+// EdgeOne Pages 入口函数 - 处理所有请求
+export default async function onRequest(context: any) {
+  const { request } = context;
+  
+  // 设置CORS头
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type'
+  };
+  
+  // 处理OPTIONS请求
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers
+    });
+  }
+  
+  // 只处理POST请求
+  if (request.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json'
+      }
+    });
+  }
+  
   try {
-    // 设置CORS头
-    response.setHeader('Access-Control-Allow-Origin', '*')
-    response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
     // 解析请求体
     let body;
     try {
-      if (request.body) {
-        body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
-      } else if (typeof request.json === 'function') {
-        body = await request.json();
-      } else {
-        body = {};
-      }
+      body = await request.json();
     } catch (e) {
       console.error('解析请求体失败:', e);
       body = {};
     }
+    
     const { word, contextSentence, useBaidu = true, skipCache = false } = body;
     
     if (!word || typeof word !== 'string') {
-      return response.status(400).json({ error: '单词内容不能为空' });
+      return new Response(JSON.stringify({ error: '单词内容不能为空' }), {
+        status: 400,
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json'
+        }
+      });
     }
 
     // 尝试从缓存获取（除非明确跳过缓存）
     if (!skipCache) {
       const cachedResult = await getWordFromCache(word, !!contextSentence);
       if (cachedResult) {
-        return response.status(200).json({
+        return new Response(JSON.stringify({
           ...cachedResult,
           fromCache: true
+        }), {
+          status: 200,
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json'
+          }
         });
       }
     }
@@ -190,10 +214,16 @@ export async function onRequestPost(request: Request, response: Response) {
         provider = 'baidu';
         // 缓存结果
         await cacheWordResult(word, !!contextSentence, wordInfo, provider);
-        return response.status(200).json({
+        return new Response(JSON.stringify({
           ...wordInfo,
           provider,
           fromCache: false
+        }), {
+          status: 200,
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json'
+          }
         });
       } catch (baiduError) {
         console.error('百度翻译API调用失败，尝试使用火山AI:', baiduError);
@@ -219,7 +249,7 @@ export async function onRequestPost(request: Request, response: Response) {
     const apiResponse = await callVolcanoAPI(messages);
     
     // 解析API响应
-    const wordInfo: WordInfo = {
+    wordInfo = {
       phonetic: '',
       definitions: []
     };
@@ -245,31 +275,28 @@ export async function onRequestPost(request: Request, response: Response) {
     // 缓存结果
     await cacheWordResult(word, !!contextSentence, wordInfo, provider);
     
-    return response.status(200).json({
+    return new Response(JSON.stringify({
       ...wordInfo,
       provider,
       fromCache: false
+    }), {
+      status: 200,
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json'
+      }
     });
   } catch (error) {
     console.error('查询单词处理失败:', error);
-    return response.status(500).json({ error: '查询单词失败', message: error instanceof Error ? error.message : String(error) });
+    return new Response(JSON.stringify({ 
+      error: '查询单词失败', 
+      message: error instanceof Error ? error.message : String(error) 
+    }), {
+      status: 500,
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json'
+      }
+    });
   }
-}
-
-// 处理OPTIONS请求的函数
-export async function onRequestOptions(request: Request, response: Response) {
-  // 设置CORS头
-  response.setHeader('Access-Control-Allow-Origin', '*');
-  response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
-  return response.status(204).end();
-}
-
-// 保持向后兼容
-export default async function handler(request: Request, response: Response) {
-  if (request.method === 'OPTIONS') {
-    return onRequestOptions(request, response);
-  }
-  return onRequestPost(request, response);
 }
