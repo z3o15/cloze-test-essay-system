@@ -157,44 +157,71 @@ async function cacheTranslationResult(
   }
 }
 
-// 处理POST请求的函数
-export async function onRequestPost(request: Request, response: Response) {
+// EdgeOne Pages 入口函数 - 处理所有请求
+export default async function onRequest(context: any) {
+  const { request, env } = context;
+  
+  // 设置CORS头
+  const response = new Response();
+  response.headers.set('Access-Control-Allow-Origin', '*');
+  response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  response.headers.set('Access-Control-Allow-Headers', 'Content-Type');
+  
+  // 处理OPTIONS请求
+  if (request.method === 'OPTIONS') {
+    response.status = 204;
+    return response;
+  }
+  
+  // 只处理POST请求
+  if (request.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  }
+  
   try {
-    // 设置CORS头
-    response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
     // 获取请求体数据
     let body;
     try {
-      if (request.body) {
-        body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
-      } else if (typeof request.json === 'function') {
-        body = await request.json();
-      } else {
-        body = {};
-      }
+      body = await request.json();
     } catch (e) {
       console.error('解析请求体失败:', e);
       body = {};
     }
+    
     const { text, targetLanguage = 'zh', sourceLanguage = 'en', useBaidu = true, skipCache = false } = body;
     
     if (!text || typeof text !== 'string') {
-      return response.status(400).json({ error: '文本内容不能为空' });
+      return new Response(JSON.stringify({ error: '文本内容不能为空' }), {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
     }
 
     // 尝试从缓存获取（除非明确跳过缓存）
     if (!skipCache) {
       const cachedResult = await getTranslationFromCache(text, sourceLanguage, targetLanguage);
       if (cachedResult) {
-        return response.status(200).json({
+        return new Response(JSON.stringify({
           translation: cachedResult.translation,
           sourceLanguage,
           targetLanguage,
           provider: cachedResult.provider,
           fromCache: true
+        }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
         });
       }
     }
@@ -223,28 +250,30 @@ export async function onRequestPost(request: Request, response: Response) {
     // 缓存翻译结果
     await cacheTranslationResult(text, sourceLanguage, targetLanguage, translatedText, provider);
     
-    return response.status(200).json({
+    return new Response(JSON.stringify({
       translation: translatedText,
       sourceLanguage,
       targetLanguage,
       provider,
       fromCache: false
+    }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
     });
   } catch (error) {
     console.error('翻译处理错误:', error);
-    return response.status(500).json({ 
+    return new Response(JSON.stringify({ 
       error: error instanceof Error ? error.message : '翻译服务暂时不可用',
       details: (error as any)?.response?.data || null
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
     });
   }
-}
-
-// 处理OPTIONS请求的函数
-export async function onRequestOptions(request: Request, response: Response) {
-  // 设置CORS头
-  response.setHeader('Access-Control-Allow-Origin', '*');
-  response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
-  return response.status(204).end();
 }

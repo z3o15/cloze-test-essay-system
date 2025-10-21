@@ -6,17 +6,13 @@
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
   "headers": [
     {
-      "source": "/api/(.*)",
+      "source": "/(.*)",
       "headers": [
         {
           "key": "Access-Control-Allow-Origin",
@@ -24,7 +20,7 @@
         },
         {
           "key": "Access-Control-Allow-Methods",
-          "value": "POST, OPTIONS"
+          "value": "GET, POST, OPTIONS"
         },
         {
           "key": "Access-Control-Allow-Headers",
@@ -33,6 +29,22 @@
       ]
     }
   ],
+  "functions": {
+    "edge_functions": {
+      "enabled": true,
+      "glob": "edge-functions/**/*.ts"
+    },
+    "routes": [
+      {
+        "pattern": "/api/translate",
+        "function": "translate.ts"
+      },
+      {
+        "pattern": "/api/word-query",
+        "function": "word-query.ts"
+      }
+    ]
+  },
   "environment": {
     "VOLCANO_API_KEY": "${VOLCANO_API_KEY}",
     "VOLCANO_API_URL": "${VOLCANO_API_URL}",
