@@ -67,6 +67,10 @@
     },
     "routes": [
       {
+        "path": "/translate",
+        "function": "edge-functions/translate.ts"
+      },
+      {
         "path": "/api/translate",
         "function": "edge-functions/translate.ts"
       },
