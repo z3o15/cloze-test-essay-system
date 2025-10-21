@@ -36,12 +36,12 @@
     },
     "routes": [
       {
-        "pattern": "/api/translate",
-        "function": "translate.ts"
+        "path": "/api/translate",
+        "function": "edge-functions/translate.ts"
       },
       {
-        "pattern": "/api/word-query",
-        "function": "word-query.ts"
+        "path": "/api/word-query",
+        "function": "edge-functions/word-query.ts"
       }
     ]
   },
@@ -50,6 +50,9 @@
     "VOLCANO_API_URL": "${VOLCANO_API_URL}",
     "BAIDU_APP_ID": "${BAIDU_APP_ID}",
     "BAIDU_SECRET_KEY": "${BAIDU_SECRET_KEY}",
+    "TENCENT_APP_ID": "${TENCENT_APP_ID}",
+    "TENCENT_APP_KEY": "${TENCENT_APP_KEY}",
+    "TENCENT_DICT_URL": "${TENCENT_DICT_URL}",
     "KV_URL": "${KV_URL}",
     "KV_REST_API_URL": "${KV_REST_API_URL}",
     "KV_REST_API_TOKEN": "${KV_REST_API_TOKEN}",
