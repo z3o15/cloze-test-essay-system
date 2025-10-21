@@ -3,18 +3,19 @@ import crypto from 'crypto';
 import { kv } from '@vercel/kv';
 
 // EdgeOne Pages兼容的请求和响应类型
-type Request = {
+interface Request {
   method: string;
   headers: Record<string, string | string[]>;
-  body: any;
-};
+  json?: () => Promise<any>;
+  body?: any;
+}
 
-type Response = {
+interface Response {
   status: (code: number) => Response;
   json: (data: any) => Promise<void>;
   end: () => Promise<void>;
   setHeader: (key: string, value: string) => void;
-};
+}
 
 // 从环境变量获取API密钥，而不是硬编码
 const VOLCANO_API_KEY = process.env.VOLCANO_API_KEY;
@@ -140,28 +141,28 @@ async function cacheWordResult(word: string, withContext: boolean, wordInfo: Wor
   }
 }
 
-export default async function handler(
-  request: Request,
-  response: Response
-) {
+// 处理POST请求的函数
+export async function onRequestPost(request: Request, response: Response) {
   try {
     // 设置CORS头
     response.setHeader('Access-Control-Allow-Origin', '*')
     response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
     response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
-    // 处理预检请求
-    if (request.method === 'OPTIONS') {
-      return response.status(200).end();
+    // 解析请求体
+    let body;
+    try {
+      if (request.body) {
+        body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
+      } else if (typeof request.json === 'function') {
+        body = await request.json();
+      } else {
+        body = {};
+      }
+    } catch (e) {
+      console.error('解析请求体失败:', e);
+      body = {};
     }
-
-    // 验证请求方法
-    if (request.method !== 'POST') {
-      return response.status(405).json({ error: 'Method Not Allowed' });
-    }
-
-    // 获取请求体数据
-    const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
     const { word, contextSentence, useBaidu = true, skipCache = false } = body;
     
     if (!word || typeof word !== 'string') {
@@ -250,9 +251,25 @@ export default async function handler(
       fromCache: false
     });
   } catch (error) {
-    console.error('单词查询处理错误:', error);
-    return response.status(500).json({ 
-      error: error instanceof Error ? error.message : '单词查询服务暂时不可用' 
-    });
+    console.error('查询单词处理失败:', error);
+    return response.status(500).json({ error: '查询单词失败', message: error instanceof Error ? error.message : String(error) });
   }
+}
+
+// 处理OPTIONS请求的函数
+export async function onRequestOptions(request: Request, response: Response) {
+  // 设置CORS头
+  response.setHeader('Access-Control-Allow-Origin', '*');
+  response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  return response.status(204).end();
+}
+
+// 保持向后兼容
+export default async function handler(request: Request, response: Response) {
+  if (request.method === 'OPTIONS') {
+    return onRequestOptions(request, response);
+  }
+  return onRequestPost(request, response);
 }
