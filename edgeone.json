@@ -6,8 +6,8 @@
   },
   "rewrites": [
     {
-      "source": "/assets/*",
-      "destination": "$0"
+      "source": "/assets/(.*)",
+      "destination": "/assets/$1"
     },
     {
       "source": "/*",
