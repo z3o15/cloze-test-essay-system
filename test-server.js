@@ -1,204 +1,163 @@
 import express from 'express';
 import cors from 'cors';
-import * as fs from 'fs';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
-
-// 获取当前文件和目录路径
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // 创建Express应用
 const app = express();
-const port = 3000;
+const PORT = 3000;
 
-// 配置CORS
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type']
-}));
-
+// 启用CORS
+app.use(cors());
 // 解析JSON请求体
 app.use(express.json());
 
-// 模拟EdgeOne环境变量
-const mockEnv = {
-  VOLCANO_API_KEY: process.env.VOLCANO_API_KEY || '',
-  VOLCANO_API_URL: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-  BAIDU_APP_ID: process.env.BAIDU_APP_ID || '',
-  BAIDU_SECRET_KEY: process.env.BAIDU_SECRET_KEY || ''
+// 本地词典数据（与word-query.ts中的数据保持一致）
+const localDictionary = {
+  'the': {
+    phonetic: '/ðə/',
+    definitions: ['定冠词', '这，那']
+  },
+  'and': {
+    phonetic: '/ænd/',
+    definitions: ['和，与', '并且']
+  },
+  'is': {
+    phonetic: '/ɪz/',
+    definitions: ['是（be的第三人称单数现在时）']
+  },
+  'in': {
+    phonetic: '/ɪn/',
+    definitions: ['在...里面', '在...期间']
+  },
+  'to': {
+    phonetic: '/tuː/',
+    definitions: ['到，向', '为了']
+  },
+  'of': {
+    phonetic: '/əv/',
+    definitions: ['...的', '属于']
+  },
+  'a': {
+    phonetic: '/ə/',
+    definitions: ['一（个）', '不定冠词']
+  },
+  'waste': {
+    phonetic: '/weɪst/',
+    definitions: ['废物，垃圾', '浪费', '废弃的']
+  },
+  'separation': {
+    phonetic: '/ˌsepəˈreɪʃn/',
+    definitions: ['分离，分开', '间隔']
+  }
 };
 
-// 模拟EdgeOne上下文对象
-function createEdgeContext(request, response) {
-  return {
-    request: {
-      method: request.method,
-      headers: request.headers,
-      json: async () => request.body,
-      url: request.url
-    },
-    env: mockEnv,
-    next: async () => {},
-    response: {
-      status: (statusCode) => {
-        response.status(statusCode);
-        return {
-          json: (data) => {
-            response.json(data);
-            return { ok: true };
-          },
-          headers: (headers) => {
-            Object.entries(headers).forEach(([key, value]) => {
-              response.setHeader(key, value);
-            });
-            return { json: (data) => { response.json(data); return { ok: true }; } };
-          }
-        };
-      },
-      headers: (headers) => {
-        Object.entries(headers).forEach(([key, value]) => {
-          response.setHeader(key, value);
-        });
-        return {
-          status: (statusCode) => {
-            response.status(statusCode);
-            return { json: (data) => { response.json(data); return { ok: true }; } };
-          }
-        };
-      }
-    }
-  };
-}
-
-// 加载Edge Functions
-let translateFunction;
-let wordQueryFunction;
-
-try {
-  // 动态导入translate函数
-  const translateModulePath = path.resolve(__dirname, 'edge-functions/translate.ts');
-  if (fs.existsSync(translateModulePath)) {
-    console.log('加载translate函数...');
-    // 注意：在实际环境中，您可能需要使用ts-node或其他方式来直接运行TypeScript
-    // 这里我们使用一个简单的模拟实现
-    translateFunction = async (context) => {
-      const requestBody = await context.request.json();
-      console.log('翻译请求:', requestBody);
-      
-      // 模拟翻译响应
-      const response = {
-        translatedText: `[模拟翻译] ${requestBody.text}`,
-        from: requestBody.from || 'en',
-        to: requestBody.to || 'zh',
-        provider: 'mock',
-        fromCache: false
-      };
-      
-      return context.response
-        .status(200)
-        .headers({
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json'
-        })
-        .json(response);
-    };
-  }
-  
-  // 动态导入word-query函数
-  const wordQueryModulePath = path.resolve(__dirname, 'edge-functions/word-query.ts');
-  if (fs.existsSync(wordQueryModulePath)) {
-    console.log('加载word-query函数...');
-    // 同样，使用模拟实现
-    wordQueryFunction = async (context) => {
-      const requestBody = await context.request.json();
-      console.log('单词查询请求:', requestBody);
-      
-      // 模拟单词查询响应
-      const response = {
-        phonetic: `/fəˈnetɪk/`,
-        definitions: [`${requestBody.word}的模拟释义`, `这是第二个模拟释义`],
-        examples: [`这是包含"${requestBody.word}"的模拟例句。`],
-        provider: 'mock',
-        fromCache: false
-      };
-      
-      return context.response
-        .status(200)
-        .headers({
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json'
-        })
-        .json(response);
-    };
-  }
-} catch (error) {
-  console.error('加载Edge Functions失败:', error);
-}
-
-// 路由：翻译接口
-app.post('/api/translate', async (req, res) => {
+// 模拟word-query API端点
+app.get('/api/word-query', (req, res) => {
   try {
-    const context = createEdgeContext(req, res);
-    if (translateFunction) {
-      await translateFunction(context);
-    } else {
-      res.status(200).json({
-        translatedText: `[模拟翻译] ${req.body.text}`,
-        from: req.body.from || 'en',
-        to: req.body.to || 'zh',
-        provider: 'mock-server',
-        fromCache: false
+    const word = req.query.encodedWord || req.query.word || '';
+    const useBaidu = req.query.useBaidu !== 'false';
+    
+    console.log(`收到GET单词查询请求: ${word}`);
+    
+    // 解码单词
+    let decodedWord = word;
+    try {
+      decodedWord = decodeURIComponent(word);
+    } catch (e) {
+      // 如果解码失败，使用原始单词
+    }
+    
+    if (!decodedWord.trim()) {
+      return res.status(400).json({
+        error: 'Missing word parameter',
+        message: 'Please provide a word to query'
       });
     }
+    
+    // 标准化单词（转小写）
+    const normalizedWord = decodedWord.toLowerCase().trim();
+    
+    // 检查本地词典
+    if (localDictionary[normalizedWord]) {
+      return res.json({
+        phonetic: localDictionary[normalizedWord].phonetic,
+        definitions: localDictionary[normalizedWord].definitions,
+        examples: localDictionary[normalizedWord].examples || [],
+        source: 'local_dictionary'
+      });
+    }
+    
+    // 如果没有本地词典数据，返回默认信息
+    return res.json({
+      phonetic: `/${normalizedWord}/`,
+      definitions: [`单词: ${normalizedWord}`],
+      examples: [],
+      source: 'default_response'
+    });
   } catch (error) {
-    console.error('翻译接口错误:', error);
-    res.status(500).json({ error: error.message });
+    console.error('GET单词查询错误:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 
-// 路由：单词查询接口
-app.post('/api/word-query', async (req, res) => {
+// POST版本的word-query API端点
+app.post('/api/word-query', (req, res) => {
   try {
-    const context = createEdgeContext(req, res);
-    if (wordQueryFunction) {
-      await wordQueryFunction(context);
-    } else {
-      res.status(200).json({
-        phonetic: `/fəˈnetɪk/`,
-        definitions: [`${req.body.word}的模拟释义`, `这是第二个模拟释义`],
-        examples: [`这是包含"${req.body.word}"的模拟例句。`],
-        provider: 'mock-server',
-        fromCache: false
+    const word = req.body.encodedWord || req.body.word || '';
+    const useBaidu = req.body.useBaidu !== false;
+    
+    console.log(`收到POST单词查询请求: ${word}`);
+    
+    // 解码单词
+    let decodedWord = word;
+    try {
+      decodedWord = decodeURIComponent(word);
+    } catch (e) {
+      // 如果解码失败，使用原始单词
+    }
+    
+    if (!decodedWord.trim()) {
+      return res.status(400).json({
+        error: 'Missing word parameter',
+        message: 'Please provide a word to query'
       });
     }
-  } catch (error) {
-    console.error('单词查询接口错误:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// 路由：测试根路径
-app.get('/', (req, res) => {
-  res.json({
-    message: 'EdgeOne Pages API 测试服务器',
-    availableEndpoints: [
-      { path: '/api/translate', method: 'POST', description: '翻译接口' },
-      { path: '/api/word-query', method: 'POST', description: '单词查询接口' }
-    ],
-    testExamples: {
-      translate: 'curl -X POST -H "Content-Type: application/json" -d "{\"text\":\"I love apples\",\"from\":\"en\",\"to\":\"zh\"}" http://localhost:3000/api/translate',
-      wordQuery: 'curl -X POST -H "Content-Type: application/json" -d "{\"word\":\"apple\",\"from\":\"en\",\"to\":\"zh\"}" http://localhost:3000/api/word-query'
+    
+    // 标准化单词（转小写）
+    const normalizedWord = decodedWord.toLowerCase().trim();
+    
+    // 检查本地词典
+    if (localDictionary[normalizedWord]) {
+      return res.json({
+        phonetic: localDictionary[normalizedWord].phonetic,
+        definitions: localDictionary[normalizedWord].definitions,
+        examples: localDictionary[normalizedWord].examples || [],
+        source: 'local_dictionary'
+      });
     }
-  });
+    
+    // 如果没有本地词典数据，返回默认信息
+    return res.json({
+      phonetic: `/${normalizedWord}/`,
+      definitions: [`单词: ${normalizedWord}`],
+      examples: [],
+      source: 'default_response'
+    });
+  } catch (error) {
+    console.error('POST单词查询错误:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
 });
 
 // 启动服务器
-app.listen(port, () => {
-  console.log(`测试服务器运行在 http://localhost:${port}`);
-  console.log('可用接口:');
-  console.log('  - POST http://localhost:3000/api/translate');
-  console.log('  - POST http://localhost:3000/api/word-query');
-  console.log('访问 http://localhost:3000 获取测试示例');
+app.listen(PORT, () => {
+  console.log(`测试服务器运行在 http://localhost:${PORT}`);
+  console.log('可用的API端点:');
+  console.log(`- GET  http://localhost:${PORT}/api/word-query?encodedWord=[单词]`);
+  console.log(`- POST http://localhost:${PORT}/api/word-query`);
 });

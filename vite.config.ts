@@ -19,7 +19,7 @@ export default defineConfig({
     proxy: {
       // API代理配置
       '/api': {
-        target: 'http://localhost:5175',
+        target: 'http://localhost:3000',
         // 在本地开发时，Vercel Serverless Functions无法直接访问
         // 这里使用rewrite将请求重定向到实际的API目录
         rewrite: (path) => path.replace(/^\/api/, '/api'),

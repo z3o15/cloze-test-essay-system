@@ -160,9 +160,6 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
     // 添加详细的响应日志，帮助调试
     console.log('API原始响应内容:', response.data);
     console.log('响应数据类型:', typeof response.data);
-    console.log('响应结构检查 - 是否有phonetic字段:', 'phonetic' in response.data);
-    console.log('响应结构检查 - 是否有definitions字段:', 'definitions' in response.data);
-    console.log('响应结构检查 - 是否有examples字段:', 'examples' in response.data);
     
     // 初始化结果对象
     const wordInfo: WordInfo = {
@@ -171,8 +168,28 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
       examples: []
     };
     
+    // 防御性检查：防止响应是HTML字符串
+    if (typeof response.data === 'string') {
+      // 检查是否是HTML字符串（包含DOCTYPE或html标签）
+      const isHtml = response.data.includes('<!DOCTYPE html>') || 
+                    response.data.includes('<html') || 
+                    response.data.includes('<head');
+      
+      if (isHtml) {
+        console.error('API返回HTML内容而不是JSON:', response.data.substring(0, 100) + '...');
+        return {
+          phonetic: '',
+          definitions: [`查询失败: API返回了HTML页面而不是JSON数据`],
+          examples: [`单词"${word}"查询时遇到了路由配置问题`]
+        };
+      }
+    }
+    
     // 验证并处理响应数据
     if (response.data && typeof response.data === 'object') {
+      console.log('响应结构检查 - 是否有phonetic字段:', 'phonetic' in response.data);
+      console.log('响应结构检查 - 是否有definitions字段:', 'definitions' in response.data);
+      console.log('响应结构检查 - 是否有examples字段:', 'examples' in response.data);
       // 处理音标
       if (typeof response.data.phonetic === 'string') {
         wordInfo.phonetic = response.data.phonetic.trim();
