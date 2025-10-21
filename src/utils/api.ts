@@ -248,7 +248,6 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
       definitions: [`查询失败: ${errorMessage}`],
       examples: [`请检查网络连接或稍后重试单词"${word}"的查询`]
     };
-  }
   } catch (error) {
     console.error('本地API代理调用失败:', error);
     console.error('错误详情:', error.response?.data || error.message || error);
