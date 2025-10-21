@@ -1,7 +1,20 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import axios from 'axios';
 import crypto from 'crypto';
 import { kv } from '@vercel/kv';
+
+// EdgeOne Pages兼容的请求和响应类型
+type Request = {
+  method: string;
+  headers: Record<string, string | string[]>;
+  body: any;
+};
+
+type Response = {
+  status: (code: number) => Response;
+  json: (data: any) => Promise<void>;
+  end: () => Promise<void>;
+  setHeader: (key: string, value: string) => void;
+};
 
 // 允许的源
 const ALLOWED_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:8080', 'http://localhost:8081']
@@ -144,15 +157,12 @@ async function cacheTranslationResult(
 }
 
 export default async function handler(
-  request: VercelRequest,
-  response: VercelResponse
+  request: Request,
+  response: Response
 ) {
   try {
     // 设置CORS头
-    const origin = request.headers.origin as string
-    if (ALLOWED_ORIGINS.includes(origin)) {
-      response.setHeader('Access-Control-Allow-Origin', origin)
-    }
+    response.setHeader('Access-Control-Allow-Origin', '*')
     response.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
     response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
@@ -167,7 +177,8 @@ export default async function handler(
     }
 
     // 获取请求体数据
-    const { text, targetLanguage = 'zh', sourceLanguage = 'en', useBaidu = true, skipCache = false } = request.body;
+    const body = typeof request.body === 'string' ? JSON.parse(request.body) : request.body;
+    const { text, targetLanguage = 'zh', sourceLanguage = 'en', useBaidu = true, skipCache = false } = body;
     
     if (!text || typeof text !== 'string') {
       return response.status(400).json({ error: '文本内容不能为空' });
