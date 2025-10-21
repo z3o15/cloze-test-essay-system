@@ -35,12 +35,25 @@
         <div v-for="(paragraph, idx) in paragraphs" :key="idx" class="paragraph-section">
           <!-- 原始段落内容 -->
           <p class="paragraph">
-            <span v-for="(token, tokenIdx) in tokenizeText(paragraph)" :key="tokenIdx" 
-                  class="token" 
-                  :data-word="token.type === 'word' ? token.text : ''"
-                  @click.stop="token.type === 'word' && showWordPopup(token.text)">
-              {{ token.text }}
-            </span>
+            <template v-for="(token, tokenIdx) in tokenizeText(paragraph)" :key="tokenIdx">
+              <!-- 单词 -->
+              <span v-if="token.type === 'word'" 
+                    class="token word-token" 
+                    :data-word="token.text"
+                    @click.stop="showWordPopup(token.text)">
+                <!-- 将单词和翻译包裹在一个inline-block容器中 -->
+                <div class="word-with-translation">
+                  <span class="word-text">{{ token.text }}</span>
+                  <!-- 单词翻译 - 置于单词正下方 -->
+                  <span v-if="getTranslation(token.text)" 
+                        class="word-translation-below">
+                    {{ getTranslation(token.text) }}
+                  </span>
+                </div>
+              </span>
+              <!-- 非单词（标点、空格） -->
+              <span v-else class="token">{{ token.text }}</span>
+            </template>
           </p>
           
           <!-- 段落翻译 -->
@@ -150,7 +163,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useStore } from '../store'
-import { tokenizeText, queryWord } from '../modules/word/wordService'
+import { tokenizeText, queryWord, isAdvancedWord } from '../modules/word/wordService'
 import { translateText } from '../modules/translate/translateService'
 // 定义本地WordInfo类型，不包含examples属性
 interface WordInfo {
@@ -169,6 +182,8 @@ interface ParagraphInfo {
     isLoading: boolean
   }>
 }
+
+
 
 const router = useRouter()
 const route = useRoute()
@@ -198,6 +213,15 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const isRefreshing = ref(false) // 新增：刷新按钮加载状态
 const originalSelectedText = ref('') // 保存原始选中的文本用于发音
+
+// 用于存储每个单词的翻译
+const wordTranslations = ref<{ [key: string]: string }>({})
+
+// 安全获取单词翻译的辅助函数
+const getTranslation = (word: string): string => {
+  const key = word.toLowerCase()
+  return wordTranslations.value[key] || ''
+}
 
 
 // 禁止背景滚动
@@ -251,26 +275,7 @@ const processParagraph = async (paragraph: string, index: number) => {
   }
 }
 
-// 批量处理所有段落
-const processAllParagraphs = async () => {
-  // 重置段落信息
-  paragraphInfos.value = []
-  
-  // 为每个段落创建初始信息
-  paragraphs.value.forEach((paragraph, index) => {
-    paragraphInfos.value[index] = {
-      text: paragraph,
-      translation: '',
-      isTranslating: true,
-      keyWords: [] // 保留字段但不使用
-    }
-  })
-  
-  // 顺序处理每个段落（避免同时发送过多请求）
-  for (let i = 0; i < paragraphs.value.length; i++) {
-    await processParagraph(paragraphs.value[i], i)
-  }
-}
+// 单词翻译相关的函数将在后面定义
 
 // 从store加载数据
 const loadData = () => {
@@ -343,6 +348,91 @@ const loadData = () => {
       processAllParagraphs()
     }
   }
+}
+
+// 获取单词翻译
+const getWordTranslation = async (word: string): Promise<string> => {
+  // 转换为小写以统一缓存键
+  const normalizedWord = word.toLowerCase().trim()
+  
+  // 首先检查单词是否为四级及以上难度
+  if (!isAdvancedWord(word)) {
+    return ''
+  }
+  
+  // 检查缓存
+  if (wordTranslations.value[normalizedWord]) {
+    return wordTranslations.value[normalizedWord]
+  }
+  
+  try {
+    // 查询单词信息
+    const result = await queryWord(word)
+    
+    // 获取第一个翻译结果作为单词翻译
+    let translation = ''
+    if (result && result.definitions && result.definitions.length > 0 && result.definitions[0]) {
+        // 只取第一个翻译结果，并移除多余的内容
+        const firstDef = String(result.definitions[0])
+        const parts = firstDef.split('；')
+        const part1 = parts[0] || ''
+        const dotParts = part1.split('. ')
+        translation = dotParts[0] || ''
+        
+        // 将翻译结果严格限定在5个字符以内
+        translation = translation.substring(0, 5)
+      }
+    
+    return translation
+  } catch (error) {
+    console.error('获取单词翻译失败:', error)
+    return ''
+  }
+}
+
+// 预加载段落中所有单词的翻译
+const preloadWordTranslations = async (paragraph: string) => {
+  const tokens = tokenizeText(paragraph)
+  const words = tokens
+    .filter(token => token.type === 'word')
+    .map(token => token.text)
+    .filter((word, index, self) => self.indexOf(word) === index) // 去重
+  
+  for (const word of words) {
+    if (!wordTranslations.value[word.toLowerCase()]) {
+      const translation = await getWordTranslation(word)
+      wordTranslations.value[word.toLowerCase()] = translation
+    }
+  }
+}
+
+// 批量处理所有段落，同时预加载单词翻译
+const processAllParagraphs = async () => {
+  // 重置段落信息
+  paragraphInfos.value = []
+  
+  // 为每个段落创建初始信息
+  paragraphs.value.forEach((paragraph, index) => {
+    paragraphInfos.value[index] = {
+      text: paragraph,
+      translation: '',
+      isTranslating: true,
+      keyWords: [] // 保留字段但不使用
+    }
+  })
+  
+  // 预加载所有单词翻译
+  for (const paragraph of paragraphs.value) {
+    await preloadWordTranslations(paragraph)
+  }
+  
+  // 顺序处理每个段落（避免同时发送过多请求）
+    for (let i = 0; i < paragraphs.value.length; i++) {
+      const paragraph = paragraphs.value[i]
+      if (paragraph) {
+        await processParagraph(paragraph, i)
+      }
+    }
 }
 
 // 显示单词查询弹窗 - 移除了例句相关功能
@@ -615,6 +705,31 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+}
+
+/* 单词样式 */
+.word-token {
+  display: inline-flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  padding: 2px 0;
+  border-radius: 4px;
+}
+
+.word-token:hover {
+  background-color: rgba(0, 122, 255, 0.05);
+}
+
+/* 单词翻译样式 */
+.word-translation {
+  font-size: 12px;
+  color: #666;
+  font-weight: normal;
+  line-height: 1.4;
+  margin-top: 2px;
+  display: inline-block;
+  text-align: center;
 }
 
 .error-state p {
@@ -1228,5 +1343,31 @@ onUnmounted(() => {
   .paragraph-translation {
     font-size: 15px;
   }
+}
+
+/* 单词容器样式 */
+.word-with-translation {
+  display: inline-block;
+  text-align: center;
+  vertical-align: top;
+  position: relative;
+}
+
+/* 单词文本样式 */
+.word-text {
+  display: inline-block;
+}
+
+/* 单词翻译样式 - 显示在单词正下方 */
+.word-translation-below {
+  display: block;
+  font-size: 12px;
+  color: #666;
+  line-height: 1.4;
+  margin-top: 2px;
+  text-align: center;
+  font-weight: normal;
+  width: 100%;
+  word-wrap: break-word;
 }
 </style>

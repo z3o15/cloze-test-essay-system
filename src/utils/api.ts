@@ -130,11 +130,50 @@ const localDictionary: Record<string, WordInfo> = {
   }
 };
 
-// 从环境变量获取火山AI API配置
+// 从环境变量获取API配置
 const VOLCANO_API_KEY = import.meta.env.VITE_VOLCANO_API_KEY || '';
 const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
+// 本地API代理地址
+const LOCAL_WORD_QUERY_API = '/api/word-query';
 
-// 调用火山AI接口的函数
+// 调用本地API代理的函数
+export const callLocalWordQueryAPI = async (word: string, contextSentence?: string, forceRefresh: boolean = false): Promise<WordInfo> => {
+  try {
+    console.log('调用本地API代理查询单词:', word);
+    
+    // 发送请求到本地API代理
+    const response = await api.post(LOCAL_WORD_QUERY_API, {
+      word,
+      contextSentence,
+      forceRefresh,
+      useBaidu: true // 优先使用百度翻译API
+    });
+    
+    // 检查响应
+    if (response.data) {
+      // 确保返回的对象符合WordInfo接口
+      const wordInfo: WordInfo = {
+        phonetic: response.data.phonetic || '',
+        definitions: response.data.definitions || ['未找到释义'],
+        examples: response.data.examples || []
+      };
+      
+      return wordInfo;
+    } else {
+      console.error('本地API代理响应格式错误:', response.data);
+      return {
+        phonetic: '',
+        definitions: ['未找到释义'],
+        examples: []
+      };
+    }
+  } catch (error) {
+    console.error('本地API代理调用失败:', error);
+    throw error;
+  }
+};
+
+// 调用API的函数
 export const queryWord = async (word: string, contextSentence?: string | boolean, forceRefresh: boolean = false): Promise<WordInfo> => {
   // 标准化单词（转为小写）
   const normalizedWord = word.toLowerCase().trim();
@@ -169,9 +208,26 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
       console.log('强制刷新模式，跳过缓存和本地词典，直接调用API:', normalizedWord);
     }
     
-    // 3. 如果没有API密钥，尝试使用简化响应
+    // 3. 使用本地API代理（会自动优先使用百度翻译API）
+    try {
+      const wordInfo = await callLocalWordQueryAPI(normalizedWord, contextSentence, forceRefresh);
+      
+      // 保存到缓存
+      wordCache.set(normalizedWord, {
+        data: wordInfo,
+        timestamp: Date.now()
+      });
+      
+      console.log('本地API代理查询成功，结果:', wordInfo);
+      return wordInfo;
+    } catch (localApiError) {
+      console.error('本地API代理调用失败，尝试使用备用方案:', localApiError);
+      // 本地API失败，继续使用备用方案
+    }
+    
+    // 4. 如果没有百度翻译API密钥或者调用失败，使用火山AI API作为备用
     if (!VOLCANO_API_KEY) {
-      console.warn('火山AI API密钥未配置，使用简化响应');
+      console.warn('API密钥未配置，使用简化响应');
       const fallbackResponse: WordInfo = {
         phonetic: '',
         definitions: [`单词"${word}"的释义需要API密钥`],
@@ -180,8 +236,8 @@ export const queryWord = async (word: string, contextSentence?: string | boolean
       return fallbackResponse;
     }
     
-    // 4. 调用火山AI API
-    console.log('调用火山AI API查询单词:', normalizedWord);
+    // 5. 调用火山AI API作为备用
+    console.log('调用火山AI API查询单词（备用方案）:', normalizedWord);
     
     // 构建提示词 - 移除例句相关要求，优化格式
     let prompt = `请提供单词"${word}"的以下信息：\n1. 音标\n2. 考研核心释义（优先显示常考含义）\n`;
