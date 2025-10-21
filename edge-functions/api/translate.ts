@@ -1,5 +1,6 @@
 import axios from 'axios';
-import crypto from 'crypto';
+// 在 Edge Functions 环境中使用 Web Crypto API 代替 Node.js 的 crypto 模块
+// import crypto from 'crypto';
 import { kv } from '@vercel/kv';
 
 // EdgeOne Pages兼容的请求和响应类型

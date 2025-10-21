@@ -182,8 +182,8 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
       // 处理释义 - 增强的数据验证
       if (Array.isArray(response.data.definitions)) {
         const validDefinitions = response.data.definitions
-          .filter(def => typeof def === 'string' && def.trim().length > 0)
-          .map(def => def.trim());
+          .filter((def: any) => typeof def === 'string' && def.trim().length > 0)
+          .map((def: string) => def.trim());
         
         if (validDefinitions.length > 0) {
           wordInfo.definitions = validDefinitions;
@@ -202,8 +202,8 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
       // 处理例句 - 增强的数据验证
       if (Array.isArray(response.data.examples)) {
         const validExamples = response.data.examples
-          .filter(example => typeof example === 'string' && example.trim().length > 5)
-          .map(example => example.trim());
+          .filter((example: any) => typeof example === 'string' && example.trim().length > 5)
+          .map((example: string) => example.trim());
         
         if (validExamples.length > 0) {
           wordInfo.examples = validExamples;
@@ -243,15 +243,11 @@ export const callLocalWordQueryAPI = async (word: string, contextSentence?: stri
                         error.message || 
                         '网络请求失败';
     
-    return {
+      return {
       phonetic: '',
       definitions: [`查询失败: ${errorMessage}`],
       examples: [`请检查网络连接或稍后重试单词"${word}"的查询`]
     };
-  } catch (error) {
-    console.error('本地API代理调用失败:', error);
-    console.error('错误详情:', error.response?.data || error.message || error);
-    throw error;
   }
 };
 
