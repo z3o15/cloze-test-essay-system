@@ -175,6 +175,8 @@ export interface WordInfo {
   phonetic: string
   definitions: string[]
   examples?: string[]
+  error?: string
+  isHtmlResponse?: boolean
 }
 
 // 添加单词查询缓存
