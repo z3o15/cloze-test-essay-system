@@ -5,6 +5,12 @@
     "outputDir": "dist"
   },
   "rewrites": [
+    // 首先让静态资源正常加载
+    {
+      "source": "/assets/*",
+      "destination": "/assets/*"
+    },
+    // 然后对其他请求进行重定向
     {
       "source": "/*",
       "destination": "/index.html"
