@@ -63,7 +63,7 @@
 <script setup lang="ts">
 import { reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { cleanPastedText } from '../modules/essay/essayService'
+// 移除未使用的导入
 import { useStore } from '../store'
 
 interface FormData {

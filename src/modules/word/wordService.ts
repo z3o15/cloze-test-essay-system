@@ -3,6 +3,7 @@ import { queryWord as apiQueryWord } from '../../utils/api'
 interface WordInfo {
   phonetic: string
   definitions: string[]
+  level?: string // 添加单词难度级别
 }
 
 // 单词查询缓存
@@ -11,6 +12,53 @@ const wordCache = new Map<string, WordInfo>()
 // 查询单词信息
 interface QueryWordOptions {
   contextSentence?: string
+}
+
+// 判断单词难度级别的函数
+const determineWordLevel = (word: string): string => {
+  // 简单的难度判断逻辑，可以根据需要扩展
+  // 这里使用一些基本规则：
+  // 1. 短单词（<=3个字母）通常是基础词汇（小学/初中水平）
+  // 2. 常见基础词汇判断
+  // 3. 其他单词默认为四级及以上
+  
+  const normalizedWord = word.toLowerCase().trim();
+  
+  // 太短的单词通常是基础词汇
+  if (normalizedWord.length <= 3) {
+    return 'elementary';
+  }
+  
+  // 常见基础词汇列表（小学/初中/高中水平）
+  const basicWords = new Set([
+    'the', 'and', 'is', 'in', 'it', 'to', 'of', 'a', 'for', 'with',
+    'on', 'at', 'by', 'i', 'you', 'he', 'she', 'we', 'they', 'that',
+    'this', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+    'could', 'should', 'may', 'might', 'must', 'can', 'cannot', 'not',
+    'yes', 'no', 'but', 'or', 'if', 'then', 'than', 'because', 'so',
+    'when', 'where', 'why', 'how', 'what', 'who', 'which', 'from', 'into',
+    'about', 'like', 'as', 'are', 'was', 'were', 'been', 'being', 'be',
+    'all', 'some', 'any', 'each', 'every', 'their', 'his', 'her', 'its',
+    'our', 'your', 'my', 'one', 'two', 'three', 'four', 'five', 'six',
+    'seven', 'eight', 'nine', 'ten', 'first', 'second', 'third',
+    'more', 'most', 'less', 'least', 'now', 'then', 'there', 'here',
+    'up', 'down', 'left', 'right', 'big', 'small', 'good', 'bad',
+    'new', 'old', 'high', 'low', 'long', 'short', 'fast', 'slow'
+    // 可以根据需要添加更多基础词汇
+  ]);
+  
+  // 如果是基础词汇，返回elementary
+  if (basicWords.has(normalizedWord)) {
+    return 'elementary';
+  }
+  
+  // 其他单词默认为四级及以上
+  return 'cet4+';
+}
+
+// 检查单词是否为四级及以上难度
+export const isAdvancedWord = (word: string): boolean => {
+  return determineWordLevel(word) === 'cet4+';
 }
 
 export const queryWord = async (word: string, options?: QueryWordOptions | boolean): Promise<WordInfo> => {
@@ -35,7 +83,8 @@ export const queryWord = async (word: string, options?: QueryWordOptions | boole
     // 只保留需要的字段，过滤掉examples
     const wordInfo: WordInfo = {
       phonetic: rawWordInfo.phonetic || '',
-      definitions: rawWordInfo.definitions || []
+      definitions: rawWordInfo.definitions || [],
+      level: determineWordLevel(word) // 添加难度级别
     }
     
     // 无论是否强制刷新，都更新缓存
@@ -53,7 +102,8 @@ export const queryWord = async (word: string, options?: QueryWordOptions | boole
     // 返回默认信息，不包含examples
     return {
       phonetic: '',
-      definitions: [`未找到单词 "${word}" 的释义`]
+      definitions: [`未找到单词 "${word}" 的释义`],
+      level: determineWordLevel(word) // 添加难度级别
     }
   }
 }
