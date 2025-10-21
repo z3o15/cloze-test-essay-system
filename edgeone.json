@@ -7,19 +7,11 @@
   "rewrites": [
     {
       "source": "/assets/(.*)",
-      "destination": "/assets/$1"
+      "target": "/assets/$1"
     },
     {
-      "source": "/(.*\\.js)",
-      "destination": "/assets/$1"
-    },
-    {
-      "source": "/(.*\\.css)",
-      "destination": "/assets/$1"
-    },
-    {
-      "source": "/*",
-      "destination": "/index.html"
+      "source": "/(.*)",
+      "target": "/index.html"
     }
   ],
   "headers": [
