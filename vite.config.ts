@@ -8,6 +8,7 @@ dns.setDefaultResultOrder('verbatim')
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  base: './',
   server: {
     host: true,
     port: 5175, // 使用不同的端口避免冲突
