@@ -6,16 +6,16 @@
   },
   "rewrites": [
     {
-      "source": "/assets/(.*)",
-      "target": "/assets/$1"
+      "source": "/assets/*",
+      "destination": "/assets/:splat"
     },
     {
-      "source": "/api/(.*)",
-      "target": "/api/$1"
+      "source": "/api/*",
+      "destination": "/api/:splat"
     },
     {
-      "source": "/(.*)",
-      "target": "/index.html"
+      "source": "/*",
+      "destination": "/index.html"
     }
   ],
   "headers": [
