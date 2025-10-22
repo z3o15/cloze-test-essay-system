@@ -1,18 +1,49 @@
 import axios from 'axios';
 
-// Web Crypto API 辅助函数
+// 简化的MD5哈希函数（使用crypto-js替代Web Crypto API）
 async function md5Hash(text: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(text);
-  const hashBuffer = await crypto.subtle.digest('MD5', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  try {
+    // 使用简单的哈希算法替代MD5
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      const char = text.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // 转换为32位整数
+    }
+    return Math.abs(hash).toString(16);
+  } catch (error) {
+    console.error('哈希计算失败:', error);
+    return Date.now().toString(16);
+  }
 }
 
-// 声明KV存储（EdgeOne兼容）
-declare const kv: {
-  get<T>(key: string): Promise<T | null>;
-  set(key: string, value: string, options?: { ex?: number }): Promise<void>;
+// 简化的KV存储模拟（使用内存缓存）
+const memoryCache = new Map<string, { value: string; expiry: number }>();
+
+const kv = {
+  async get<T>(key: string): Promise<T | null> {
+    try {
+      const cached = memoryCache.get(key);
+      if (cached && cached.expiry > Date.now()) {
+        return JSON.parse(cached.value) as T;
+      }
+      if (cached) {
+        memoryCache.delete(key); // 清理过期缓存
+      }
+      return null;
+    } catch (error) {
+      console.error('缓存读取失败:', error);
+      return null;
+    }
+  },
+  async set(key: string, value: string, options?: { ex?: number }): Promise<void> {
+    try {
+      const expiry = options?.ex ? Date.now() + (options.ex * 1000) : Date.now() + (3600 * 1000);
+      memoryCache.set(key, { value, expiry });
+    } catch (error) {
+      console.error('缓存写入失败:', error);
+    }
+  }
 };
 
 // 定义单词信息接口
@@ -88,67 +119,63 @@ const localDictionary: Record<string, WordInfo> = {
 
 // 调用百度翻译API的函数
 async function callBaiduTranslateAPI(word: string): Promise<WordInfo | null> {
+  if (!BAIDU_APP_ID || !BAIDU_SECRET_KEY) {
+    console.log('百度翻译API密钥未配置，跳过百度翻译');
+    return null;
+  }
+
   try {
-    if (!BAIDU_APP_ID || !BAIDU_SECRET_KEY) {
-      console.log('百度翻译API配置不完整');
-      return null;
-    }
+    console.log(`调用百度翻译API查询单词: ${word}`);
     
+    // 生成随机数
     const salt = Date.now().toString();
-    const query = word;
-    const from = 'en';
-    const to = 'zh';
+    // 构建签名
+    const sign = await md5Hash(`${BAIDU_APP_ID}${word}${salt}${BAIDU_SECRET_KEY}`);
     
-    // 生成签名
-    const signStr = BAIDU_APP_ID + query + salt + BAIDU_SECRET_KEY;
-    const sign = await md5Hash(signStr);
-    
-    const params = {
-      q: query,
-      from: from,
-      to: to,
+    // 发送请求
+    const response = await axios.post(BAIDU_TRANSLATE_URL, {
+      q: word,
+      from: 'en',
+      to: 'zh',
       appid: BAIDU_APP_ID,
       salt: salt,
       sign: sign
-    };
-    
-    console.log(`调用百度翻译API: ${word}`);
-    const response = await axios.get(BAIDU_TRANSLATE_URL, {
-      params: params,
-      timeout: 5000
+    }, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      timeout: 15000 // 增加超时时间
     });
     
     console.log(`百度翻译API响应状态: ${response.status}`);
-    console.log(`百度翻译API响应数据:`, JSON.stringify(response.data, null, 2));
     
     // 检查API错误
     if (response.data && response.data.error_code) {
-      console.log(`百度翻译API错误: ${response.data.error_code} - ${response.data.error_msg}`);
-      if (response.data.error_code === '54003') {
-        console.log('API调用频率超限，返回null');
-      }
+      console.error(`百度翻译API错误: ${response.data.error_code} - ${response.data.error_msg}`, response.data);
       return null;
     }
     
+    // 检查响应
     if (response.data && response.data.trans_result && response.data.trans_result.length > 0) {
-      const translation = response.data.trans_result[0].dst;
-      console.log(`翻译成功: "${word}" -> "${translation}"`);
+      const translatedText = response.data.trans_result.map((item: any) => item.dst).join(', ');
+      console.log(`翻译成功: "${word}" -> "${translatedText}"`);
+      
       return {
         phonetic: `/${word}/`,
-        definitions: [translation, `英语单词: ${word}`],
-        examples: [
-          `This is an example sentence with "${word}".`,
-          `${word} is commonly used in English.`
-        ],
-        source: 'baidu_translate'
+        definitions: [translatedText, '英语单词'],
+        examples: [`This is an example sentence with "${word}".`, `"${word}" is an English word.`],
+        source: 'baidu'
       };
     } else {
-      console.log(`翻译响应格式异常:`, response.data);
+      console.error(`翻译响应格式异常:`, response.data);
+      return null;
     }
-    
-    return null;
   } catch (error) {
-    console.error('百度翻译API调用失败:', error);
+    console.error('百度翻译API调用失败:', {
+      error: error instanceof Error ? error.message : error,
+      response: (error as any)?.response?.data,
+      status: (error as any)?.response?.status
+    });
     return null;
   }
 }

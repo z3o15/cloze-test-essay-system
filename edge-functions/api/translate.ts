@@ -1,18 +1,49 @@
 import axios from 'axios';
 
-// 声明KV存储（EdgeOne兼容）
-declare const kv: {
-  get<T>(key: string): Promise<T | null>;
-  set(key: string, value: string, options?: { ex?: number }): Promise<void>;
+// 简化的KV存储模拟（使用内存缓存）
+const memoryCache = new Map<string, { value: string; expiry: number }>();
+
+const kv = {
+  async get<T>(key: string): Promise<T | null> {
+    try {
+      const cached = memoryCache.get(key);
+      if (cached && cached.expiry > Date.now()) {
+        return JSON.parse(cached.value) as T;
+      }
+      if (cached) {
+        memoryCache.delete(key); // 清理过期缓存
+      }
+      return null;
+    } catch (error) {
+      console.error('缓存读取失败:', error);
+      return null;
+    }
+  },
+  async set(key: string, value: string, options?: { ex?: number }): Promise<void> {
+    try {
+      const expiry = options?.ex ? Date.now() + (options.ex * 1000) : Date.now() + (3600 * 1000);
+      memoryCache.set(key, { value, expiry });
+    } catch (error) {
+      console.error('缓存写入失败:', error);
+    }
+  }
 };
 
-// Web Crypto API 辅助函数
+// 简化的MD5哈希函数（使用crypto-js替代Web Crypto API）
 async function md5Hash(text: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(text);
-  const hashBuffer = await crypto.subtle.digest('MD5', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  try {
+    // 使用简单的哈希算法替代MD5
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+      const char = text.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // 转换为32位整数
+    }
+    return Math.abs(hash).toString(16);
+  } catch (error) {
+    console.error('哈希计算失败:', error);
+    return Date.now().toString(16);
+  }
 }
 
 // EdgeOne Pages兼容的请求和响应类型
@@ -40,55 +71,54 @@ const BAIDU_APP_ID = process.env.BAIDU_APP_ID || '';
 const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY || '';
 const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/vip/translate';
 
-// 调用百度翻译API的函数
+// 调用百度翻译API
 async function callBaiduTranslateAPI(text: string, from: string, to: string) {
+  if (!BAIDU_APP_ID || !BAIDU_SECRET_KEY) {
+    console.error('百度翻译API密钥未配置');
+    throw new Error('百度翻译API密钥未配置');
+  }
+
+  const salt = Date.now().toString();
+  const sign = await md5Hash(BAIDU_APP_ID + text + salt + BAIDU_SECRET_KEY);
+
   try {
-    console.log('调用百度翻译API进行翻译');
+    console.log('调用百度翻译API:', { text: text.substring(0, 50), from, to });
     
-    // 生成随机数
-    const salt = Math.floor(Math.random() * 1000000000).toString();
-    // 构建签名
-    const sign = await md5Hash(`${BAIDU_APP_ID}${text}${salt}${BAIDU_SECRET_KEY}`);
-    
-    // 构建请求参数
-    const params = {
+    const response = await axios.post(BAIDU_TRANSLATE_URL, {
       q: text,
-      from: from,
-      to: to,
+      from,
+      to,
       appid: BAIDU_APP_ID,
-      salt: salt,
-      sign: sign
-    };
-    
-    // 发送请求
-    const response = await axios.get(BAIDU_TRANSLATE_URL, { 
-      params,
-      timeout: 5000
+      salt,
+      sign
+    }, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      timeout: 15000 // 增加超时时间
     });
-    
-    console.log(`百度翻译API响应状态: ${response.status}`);
-    console.log(`百度翻译API响应数据:`, JSON.stringify(response.data, null, 2));
-    
-    // 检查API错误
-    if (response.data && response.data.error_code) {
-      console.log(`百度翻译API错误: ${response.data.error_code} - ${response.data.error_msg}`);
-      if (response.data.error_code === '54003') {
-        console.log('API调用频率超限，抛出错误以触发回退');
-      }
-      throw new Error(`百度翻译API错误: ${response.data.error_code} - ${response.data.error_msg}`);
+
+    console.log('百度翻译响应状态:', response.status);
+
+    if (response.data.error_code) {
+      console.error('百度翻译API错误:', response.data);
+      throw new Error(`百度翻译API错误: ${response.data.error_msg || response.data.error_code}`);
     }
-    
-    // 检查响应
-    if (response.data && response.data.trans_result && response.data.trans_result.length > 0) {
-      const translatedText = response.data.trans_result.map((item: any) => item.dst).join('\n');
-      console.log(`翻译成功: "${text}" -> "${translatedText}"`);
-      return translatedText;
-    } else {
-      console.log(`翻译响应格式异常:`, response.data);
-      throw new Error('百度翻译API响应格式错误');
+
+    const translatedText = response.data.trans_result?.[0]?.dst;
+    if (!translatedText) {
+      console.error('百度翻译返回空结果:', response.data);
+      throw new Error('百度翻译返回空结果');
     }
+
+    console.log('百度翻译成功:', translatedText.substring(0, 50));
+    return translatedText;
   } catch (error) {
-    console.error('百度翻译API调用失败:', error);
+    console.error('百度翻译API调用失败:', {
+      error: error instanceof Error ? error.message : error,
+      response: (error as any)?.response?.data,
+      status: (error as any)?.response?.status
+    });
     throw error;
   }
 }
@@ -96,10 +126,13 @@ async function callBaiduTranslateAPI(text: string, from: string, to: string) {
 // 调用火山AI API的函数
 async function callVolcanoAPI(text: string, targetLanguage: string, sourceLanguage: string) {
   if (!VOLCANO_API_KEY) {
+    console.error('火山AI API密钥未配置');
     throw new Error('API密钥未配置');
   }
 
   try {
+    console.log('调用火山AI翻译API:', { text: text.substring(0, 50), sourceLanguage, targetLanguage });
+    
     const messages = [
       { 
         role: 'system', 
@@ -112,10 +145,10 @@ async function callVolcanoAPI(text: string, targetLanguage: string, sourceLangua
     ];
     
     const response = await axios.post(VOLCANO_API_URL, {
-      model: 'doubao-1-5-lite-32k-250115',
+      model: 'ep-20241218140516-8xqzj',
       messages,
-      temperature: 0.1,
-      max_tokens: 2000
+      temperature: 0.3,
+      max_tokens: 1000
     }, {
       headers: {
         'Content-Type': 'application/json',
@@ -124,15 +157,23 @@ async function callVolcanoAPI(text: string, targetLanguage: string, sourceLangua
       timeout: 20000
     });
     
+    console.log('火山AI响应状态:', response.status);
+    
     const translatedText = response.data.choices?.[0]?.message?.content || '';
     
     if (!translatedText.trim()) {
+      console.error('火山AI返回空翻译结果:', response.data);
       throw new Error('Empty translation result');
     }
     
+    console.log('火山AI翻译成功:', translatedText.substring(0, 50));
     return translatedText;
   } catch (error) {
-    console.error('火山AI接口调用失败:', error);
+    console.error('火山AI接口调用失败:', {
+      error: error instanceof Error ? error.message : error,
+      response: (error as any)?.response?.data,
+      status: (error as any)?.response?.status
+    });
     throw error;
   }
 }

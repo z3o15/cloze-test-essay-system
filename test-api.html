@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .success {
+            border-color: #28a745;
+            background-color: #d4edda;
+        }
+        .error {
+            border-color: #dc3545;
+            background-color: #f8d7da;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>API功能测试</h1>
+    
+    <div class="test-section">
+        <h2>单词查询API测试</h2>
+        <input type="text" id="wordInput" placeholder="输入要查询的单词" value="hello">
+        <button onclick="testWordQuery()">测试单词查询</button>
+        <div id="wordResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>翻译API测试</h2>
+        <input type="text" id="translateInput" placeholder="输入要翻译的文本" value="Hello, how are you?">
+        <button onclick="testTranslate()">测试翻译</button>
+        <div id="translateResult" class="result"></div>
+    </div>
+
+    <script>
+        async function testWordQuery() {
+            const word = document.getElementById('wordInput').value;
+            const resultDiv = document.getElementById('wordResult');
+            
+            try {
+                resultDiv.textContent = '正在查询...';
+                resultDiv.className = 'result';
+                
+                const response = await fetch(`/api/word-query?word=${encodeURIComponent(word)}`);
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    resultDiv.textContent = JSON.stringify(data, null, 2);
+                    resultDiv.className = 'result success';
+                } else {
+                    resultDiv.textContent = `错误: ${JSON.stringify(data, null, 2)}`;
+                    resultDiv.className = 'result error';
+                }
+            } catch (error) {
+                resultDiv.textContent = `网络错误: ${error.message}`;
+                resultDiv.className = 'result error';
+            }
+        }
+        
+        async function testTranslate() {
+            const text = document.getElementById('translateInput').value;
+            const resultDiv = document.getElementById('translateResult');
+            
+            try {
+                resultDiv.textContent = '正在翻译...';
+                resultDiv.className = 'result';
+                
+                const response = await fetch('/api/translate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        targetLanguage: 'zh',
+                        sourceLanguage: 'en'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.translation) {
+                    resultDiv.textContent = JSON.stringify(data, null, 2);
+                    resultDiv.className = 'result success';
+                } else {
+                    resultDiv.textContent = `错误: ${JSON.stringify(data, null, 2)}`;
+                    resultDiv.className = 'result error';
+                }
+            } catch (error) {
+                resultDiv.textContent = `网络错误: ${error.message}`;
+                resultDiv.className = 'result error';
+            }
+        }
+        
+        // 页面加载时自动测试
+        window.onload = function() {
+            console.log('API测试页面已加载');
+        };
+    </script>
+</body>
+</html>
