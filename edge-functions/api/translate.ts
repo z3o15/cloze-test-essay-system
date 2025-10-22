@@ -66,8 +66,9 @@ const BAIDU_SECRET_KEY = process.env.VITE_BAIDU_SECRET_KEY || process.env.BAIDU_
 const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/vip/translate';
 
 // 腾讯开放平台（api.ai.qq.com）环境变量与URL（支持多种命名别名）
-const TENCENT_APP_ID = process.env.VITE_TENCENT_APP_ID || process.env.TENCENT_APP_ID || process.env.TENCENT_APPID || '';
-const TENCENT_APP_KEY = process.env.VITE_TENCENT_KEY || process.env.VITE_TENCENT_APP_KEY || process.env.TENCENT_APP_KEY || process.env.TENCENT_KEY || '';
+const TENCENT_APP_ID = process.env.VITE_TENCENT_SECRET_ID || process.env.TENCENT_SECRET_ID || '';
+const TENCENT_APP_KEY = process.env.VITE_TENCENT_SECRET_KEY || process.env.TENCENT_SECRET_KEY || '';
+const KV_NAMESPACE = (process.env.KV_NAMESPACE || null) as any;
 const TENCENT_TRANSLATE_URL = process.env.VITE_TENCENT_API_URL || process.env.TENCENT_API_URL || 'https://api.ai.qq.com/fcgi-bin/nlp/nlp_texttrans';
 
 // 调用百度翻译API
@@ -142,23 +143,9 @@ function mapLangForTencent(lang: string, isSource: boolean): string {
 }
 
 // 腾讯开放平台翻译
-async function callTencentTranslateAPI(text: string, sourceLanguage: string, targetLanguage: string) {
-  console.log('腾讯翻译API调用开始:', {
-    textLength: text.length,
-    sourceLanguage,
-    targetLanguage,
-    hasAppId: !!TENCENT_APP_ID,
-    hasAppKey: !!TENCENT_APP_KEY,
-    apiUrl: TENCENT_TRANSLATE_URL
-  });
-
+async function callTencentAPI(text: string, from: string, to: string) {
   if (!TENCENT_APP_ID || !TENCENT_APP_KEY) {
-    const error = '腾讯翻译API密钥未配置';
-    console.error(error, {
-      TENCENT_APP_ID: TENCENT_APP_ID || 'undefined',
-      TENCENT_APP_KEY: TENCENT_APP_KEY ? 'defined' : 'undefined'
-    });
-    throw new Error(error);
+    throw new Error('腾讯翻译API密钥未配置');
   }
 
   const time_stamp = Math.floor(Date.now() / 1000).toString();
