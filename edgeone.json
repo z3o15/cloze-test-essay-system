@@ -50,33 +50,20 @@
       "glob": "edge-functions/**/*.ts"
     },
     "routes": [
-      { "path": "/translate", "function": "edge-functions/translate.ts" },
       { "path": "/api/translate", "function": "edge-functions/api/translate.ts" },
       { "path": "/api/word-query", "function": "edge-functions/word-query.ts" },
       { "path": "/api/visit-count", "function": "edge-functions/visit-counter.ts" }
     ]
   },
   "environment": {
-    "VOLCANO_API_KEY": "${VOLCANO_API_KEY}",
-    "VOLCANO_API_URL": "${VOLCANO_API_URL}",
-    "BAIDU_APP_ID": "${BAIDU_APP_ID}",
-    "BAIDU_SECRET_KEY": "${BAIDU_SECRET_KEY}",
-    "TENCENT_APP_ID": "${TENCENT_APP_ID}",
-    "TENCENT_APP_KEY": "${TENCENT_APP_KEY}",
-    "TENCENT_KEY": "${TENCENT_KEY}",
-    "TENCENT_API_URL": "${TENCENT_API_URL}",
-    "TENCENT_DICT_URL": "${TENCENT_DICT_URL}",
+    "TENCENT_SECRET_ID": "${TENCENT_SECRET_ID}",
+    "TENCENT_SECRET_KEY": "${TENCENT_SECRET_KEY}",
+    "TENCENT_REGION": "${TENCENT_REGION}",
+    "TENCENT_PROJECT_ID": "${TENCENT_PROJECT_ID}",
     "KV_URL": "${KV_URL}",
     "KV_REST_API_URL": "${KV_REST_API_URL}",
     "KV_REST_API_TOKEN": "${KV_REST_API_TOKEN}",
     "KV_REST_API_READ_ONLY_TOKEN": "${KV_REST_API_READ_ONLY_TOKEN}",
-    "VITE_API_BASE_URL": "${VITE_API_BASE_URL}",
-    "API_BASE_URL": "${API_BASE_URL}",
-    "VITE_VOLCANO_API_KEY": "${VITE_VOLCANO_API_KEY}",
-    "VITE_VOLCANO_APIURL": "${VITE_VOLCANO_APIURL}",
-    "VITE_TENCENT_APP_ID": "${VITE_TENCENT_APP_ID}",
-    "VITE_TENCENT_KEY": "${VITE_TENCENT_KEY}",
-    "VITE_TENCENT_APP_KEY": "${VITE_TENCENT_APP_KEY}",
-    "VITE_TENCENT_API_URL": "${VITE_TENCENT_API_URL}"
+    "API_BASE_URL": "${API_BASE_URL}"
   }
 }
