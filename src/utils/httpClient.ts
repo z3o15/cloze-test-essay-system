@@ -7,9 +7,9 @@ const getApiBaseUrl = (): string => {
     return 'http://localhost:3000'
   }
   
-  // 在生产环境中，支持通过环境变量配置后端基址
-  const envUrl = (import.meta.env.VITE_API_BASE_URL as string) || (import.meta.env.API_BASE_URL as string) || ''
-  return envUrl
+  // 在生产环境中，使用相对路径避免跨域问题
+  // EdgeOne会通过路由配置将/api/*请求转发到对应的Edge Functions
+  return ''
 }
 
 // 创建axios实例
