@@ -125,12 +125,20 @@ async function callBaiduTranslateAPI(text: string, from: string, to: string) {
 // 语言映射：腾讯开放平台
 function mapLangForTencent(lang: string, isSource: boolean): string {
   const l = (lang || '').toLowerCase();
-  if (isSource && (l === 'auto' || !l)) return 'auto';
+  // 腾讯接口不支持 auto，源语言默认使用 en 作为回退
+  if (isSource) {
+    if (l.startsWith('zh') || l === 'cn') return 'zh';
+    if (l === 'en') return 'en';
+    if (l === 'ja' || l === 'jp') return 'jp';
+    if (l === 'ko' || l === 'kr') return 'kr';
+    return 'en';
+  }
+  // 目标语言映射
   if (l.startsWith('zh') || l === 'cn') return 'zh';
   if (l === 'en') return 'en';
   if (l === 'ja' || l === 'jp') return 'jp';
   if (l === 'ko' || l === 'kr') return 'kr';
-  return isSource ? 'auto' : 'zh';
+  return 'zh';
 }
 
 // 腾讯开放平台翻译
@@ -345,7 +353,7 @@ export default async function onRequest(context: any) {
       body = {};
     }
     
-    const { text, targetLanguage = 'zh', sourceLanguage = 'en', useBaidu = true, skipCache = false } = body;
+    const { text, targetLanguage = 'zh', sourceLanguage = 'en', useBaidu = true, skipCache = false, provider: preferredProvider } = body;
     
     if (!text || typeof text !== 'string') {
       return new Response(JSON.stringify({ error: '文本内容不能为空' }), {
@@ -378,60 +386,80 @@ export default async function onRequest(context: any) {
     const hasBaidu = !!(BAIDU_APP_ID && BAIDU_SECRET_KEY);
     const hasVolcano = !!(VOLCANO_API_KEY);
 
-    // 选择提供者顺序：腾讯 -> 百度 -> 火山（根据可用性）
-    if (hasTencent) {
-      try {
-        translatedText = await callTencentTranslateAPI(text, sourceLanguage, targetLanguage);
-        provider = 'tencent';
-        console.log('腾讯翻译成功');
-      } catch (tencentError) {
-        console.error('腾讯翻译失败，尝试其他提供者:', tencentError);
-        if (useBaidu && hasBaidu) {
-          try {
-            translatedText = await callBaiduTranslateAPI(text, sourceLanguage, targetLanguage);
-            provider = 'baidu';
-          } catch (baiduError) {
-            console.error('百度翻译失败，回退到火山AI:', baiduError);
-            if (hasVolcano) {
-              translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
-              provider = 'volcano';
-            } else {
-              throw baiduError;
-            }
-          }
-        } else if (hasVolcano) {
-          translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
-          provider = 'volcano';
-        } else {
-          throw tencentError;
-        }
+    // 如果指定了 provider，则只使用对应提供者
+    if (preferredProvider === 'tencent') {
+      if (!hasTencent) {
+        return new Response(JSON.stringify({ error: '腾讯翻译未配置（缺少 APP_ID/KEY）' }), { status: 503, headers: corsHeaders });
       }
-    } else if (useBaidu && hasBaidu) {
-      try {
-        translatedText = await callBaiduTranslateAPI(text, sourceLanguage, targetLanguage);
-        provider = 'baidu';
-      } catch (baiduError) {
-        console.error('百度翻译失败，回退到火山AI:', baiduError);
-        if (hasVolcano) {
-          translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
-          provider = 'volcano';
-        } else {
-          throw baiduError;
-        }
+      translatedText = await callTencentTranslateAPI(text, sourceLanguage, targetLanguage);
+      provider = 'tencent';
+    } else if (preferredProvider === 'baidu') {
+      if (!hasBaidu) {
+        return new Response(JSON.stringify({ error: '百度翻译未配置（缺少 APP_ID/SECRET）' }), { status: 503, headers: corsHeaders });
       }
-    } else if (hasVolcano) {
+      translatedText = await callBaiduTranslateAPI(text, sourceLanguage, targetLanguage);
+      provider = 'baidu';
+    } else if (preferredProvider === 'volcano') {
+      if (!hasVolcano) {
+        return new Response(JSON.stringify({ error: '火山翻译未配置（缺少 API_KEY）' }), { status: 503, headers: corsHeaders });
+      }
       translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
       provider = 'volcano';
     } else {
-      return new Response(JSON.stringify({ error: '未配置任何可用的翻译服务（腾讯/百度/火山）' }), {
-        status: 503,
-        headers: corsHeaders
-      });
+      // 未指定 provider，按照默认优先级：腾讯 -> 百度 -> 火山
+      if (hasTencent) {
+        try {
+          translatedText = await callTencentTranslateAPI(text, sourceLanguage, targetLanguage);
+          provider = 'tencent';
+        } catch (tencentError) {
+          console.error('腾讯翻译失败，尝试其他提供者:', tencentError);
+          if (useBaidu && hasBaidu) {
+            try {
+              translatedText = await callBaiduTranslateAPI(text, sourceLanguage, targetLanguage);
+              provider = 'baidu';
+            } catch (baiduError) {
+              console.error('百度翻译失败，回退到火山AI:', baiduError);
+              if (hasVolcano) {
+                translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
+                provider = 'volcano';
+              } else {
+                throw baiduError;
+              }
+            }
+          } else if (hasVolcano) {
+            translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
+            provider = 'volcano';
+          } else {
+            throw tencentError;
+          }
+        }
+      } else if (useBaidu && hasBaidu) {
+        try {
+          translatedText = await callBaiduTranslateAPI(text, sourceLanguage, targetLanguage);
+          provider = 'baidu';
+        } catch (baiduError) {
+          console.error('百度翻译失败，回退到火山AI:', baiduError);
+          if (hasVolcano) {
+            translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
+            provider = 'volcano';
+          } else {
+            throw baiduError;
+          }
+        }
+      } else if (hasVolcano) {
+        translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
+        provider = 'volcano';
+      } else {
+        return new Response(JSON.stringify({ error: '未配置任何可用的翻译服务（腾讯/百度/火山）' }), {
+          status: 503,
+          headers: corsHeaders
+        });
+      }
     }
-    
+
     // 缓存翻译结果
     await cacheTranslationResult(text, sourceLanguage, targetLanguage, translatedText, provider);
-    
+
     return new Response(JSON.stringify({
       translation: translatedText,
       sourceLanguage,
