@@ -7,8 +7,9 @@ const getApiBaseUrl = (): string => {
     return 'http://localhost:3000'
   }
   
-  // 在生产环境中，使用相对路径（当前域名）
-  return ''
+  // 在生产环境中，支持通过环境变量配置后端基址
+  const envUrl = (import.meta.env.VITE_API_BASE_URL as string) || (import.meta.env.API_BASE_URL as string) || ''
+  return envUrl
 }
 
 // 创建axios实例
@@ -29,27 +30,27 @@ httpClient.interceptors.response.use(
       return Promise.reject(new Error('服务器返回了HTML页面，可能是错误页面'))
     }
 
-    // 如果响应是字符串，尝试解析为JSON
+    // 如果响应是字符串，尝试解析为JSON；否则保留给上层解析
     if (typeof response.data === 'string') {
       try {
         response.data = JSON.parse(response.data)
-      } catch (parseError) {
-        // 如果无法解析，保留原始字符串
+      } catch {
+        // 保留原始字符串以便上层逻辑自行处理
       }
     }
 
-    // 确保响应数据是对象
+    // 标准化非对象响应为包装对象，但不标记为错误
     if (typeof response.data !== 'object' || response.data === null) {
-      response.data = {
-        success: false,
-        error: '响应数据格式错误',
-        data: response.data
-      }
+      response.data = { raw: response.data }
     }
 
-    // 检查是否有错误信息
-    if (response.data.error || (response.data.success === false && response.status !== 200)) {
-      return Promise.reject(new Error(response.data.error || 'HTML response detected'))
+    // 检查是否有错误信息字段
+    if (response.data && typeof response.data === 'object') {
+      const errMsg = (response.data as any).error
+      const success = (response.data as any).success
+      if (errMsg || (success === false && response.status !== 200)) {
+        return Promise.reject(new Error(errMsg || '请求失败'))
+      }
     }
 
     return response
