@@ -96,10 +96,14 @@ const callLocalWordQueryAPI = async (word: string): Promise<WordInfo | null> => 
   try {
     const response = await httpClient.get(`/api/word-query?word=${encodeURIComponent(word)}`)
     
-    if (response.data && isValidResponseData(response.data)) {
-      return {
-        phonetic: response.data.phonetic || '',
-        definitions: response.data.definitions || []
+    // 检查新的响应格式 - API返回 {success: true, data: {...}}
+    if (response.data && response.data.success && response.data.data) {
+      const apiData = response.data.data
+      if (isValidResponseData(apiData)) {
+        return {
+          phonetic: apiData.phonetic || '',
+          definitions: apiData.definitions || []
+        }
       }
     }
     
