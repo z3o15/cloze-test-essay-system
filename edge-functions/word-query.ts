@@ -1,19 +1,13 @@
-import axios from 'axios';
+import axios from 'axios'
+import crypto from 'crypto'
 
 // 简化的MD5哈希函数（使用crypto-js替代Web Crypto API）
 async function md5Hash(text: string): Promise<string> {
   try {
-    // 使用简单的哈希算法替代MD5
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      const char = text.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // 转换为32位整数
-    }
-    return Math.abs(hash).toString(16);
+    return crypto.createHash('md5').update(text, 'utf8').digest('hex')
   } catch (error) {
-    console.error('哈希计算失败:', error);
-    return Date.now().toString(16);
+    console.error('MD5计算失败:', error)
+    return Date.now().toString(16)
   }
 }
 
@@ -48,186 +42,121 @@ const kv = {
 
 // 定义单词信息接口
 interface WordInfo {
-  phonetic: string;
-  definitions: string[];
-  examples: string[];
-  source: string;
+  phonetic: string
+  definitions: string[]
 }
 
 // 环境变量
-const BAIDU_APP_ID = process.env.VITE_BAIDU_APP_ID || process.env.BAIDU_APP_ID || '';
-const BAIDU_SECRET_KEY = process.env.VITE_BAIDU_SECRET_KEY || process.env.BAIDU_SECRET_KEY || '';
-const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
+const BAIDU_APP_ID = process.env.VITE_BAIDU_APP_ID || process.env.BAIDU_APP_ID || ''
+const BAIDU_SECRET_KEY = process.env.VITE_BAIDU_SECRET_KEY || process.env.BAIDU_SECRET_KEY || ''
+const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate'
 
 // 本地词典数据（作为回退）
 const localDictionary: Record<string, WordInfo> = {
-  'the': {
-    phonetic: '/ðə/',
-    definitions: ['定冠词', '这，那'],
-    examples: ['The book is on the table.', 'The sun is shining.'],
-    source: 'local'
-  },
-  'and': {
-    phonetic: '/ænd/',
-    definitions: ['和，与', '并且'],
-    examples: ['Tom and Jerry', 'I like apples and oranges.'],
-    source: 'local'
-  },
-  'is': {
-    phonetic: '/ɪz/',
-    definitions: ['是（be的第三人称单数现在时）'],
-    examples: ['He is a teacher.', 'The weather is nice.'],
-    source: 'local'
-  },
-  'in': {
-    phonetic: '/ɪn/',
-    definitions: ['在...里面', '在...期间'],
-    examples: ['The cat is in the box.', 'In summer, it\'s hot.'],
-    source: 'local'
-  },
-  'to': {
-    phonetic: '/tuː/',
-    definitions: ['到，向', '为了'],
-    examples: ['Go to school.', 'I want to learn.'],
-    source: 'local'
-  },
-  'of': {
-    phonetic: '/əv/',
-    definitions: ['...的', '属于'],
-    examples: ['The color of the sky.', 'A cup of tea.'],
-    source: 'local'
-  },
-  'a': {
-    phonetic: '/ə/',
-    definitions: ['一（个）', '不定冠词'],
-    examples: ['A book', 'A beautiful day'],
-    source: 'local'
-  },
-  'waste': {
-    phonetic: '/weɪst/',
-    definitions: ['废物，垃圾', '浪费', '废弃的'],
-    examples: ['Don\'t waste time.', 'Waste separation is important.'],
-    source: 'local'
-  },
-  'separation': {
-    phonetic: '/ˌsepəˈreɪʃn/',
-    definitions: ['分离，分开', '间隔'],
-    examples: ['The separation of powers.', 'Waste separation helps recycling.'],
-    source: 'local'
-  }
-};
+  'the': { phonetic: '/ðə/', definitions: ['定冠词', '这，那'] },
+  'and': { phonetic: '/ænd/', definitions: ['和，与', '并且'] },
+  'is': { phonetic: '/ɪz/', definitions: ['是（be的第三人称单数现在时）'] },
+  'in': { phonetic: '/ɪn/', definitions: ['在...里面', '在...期间'] },
+  'to': { phonetic: '/tuː/', definitions: ['到，向', '为了'] },
+  'of': { phonetic: '/əv/', definitions: ['...的', '属于'] },
+  'a': { phonetic: '/ə/', definitions: ['一（个）', '不定冠词'] },
+  'waste': { phonetic: '/weɪst/', definitions: ['废物，垃圾', '浪费', '废弃的'] },
+  'separation': { phonetic: '/ˌsepəˈreɪʃn/', definitions: ['分离，分开', '间隔'] }
+}
+
+// 调用腾讯翻译API的函数
+const getEnvVar = (key: string): string => {
+  return process.env[`VITE_${key}`] || process.env[key] || ''
+}
+async function callTencentTranslateAPI(word: string): Promise<string> {
+  const TENCENT_APP_ID = getEnvVar('TENCENT_APP_ID')
+  const TENCENT_APP_KEY = getEnvVar('TENCENT_APP_KEY')
+  const TENCENT_TRANSLATE_URL = getEnvVar('TENCENT_TRANSLATE_URL') || 'https://api.ai.qq.com/fcgi-bin/nlp/nlp_texttranslate'
+  if (!TENCENT_APP_ID || !TENCENT_APP_KEY) throw new Error('腾讯翻译API密钥未配置')
+  const nonceStr = Math.random().toString(36).slice(2, 17)
+  const timeStamp = Math.floor(Date.now() / 1000).toString()
+  const params: any = { app_id: TENCENT_APP_ID, nonce_str: nonceStr, time_stamp: timeStamp, text: word, source: 'auto', target: 'zh' }
+  const sortedKeys = Object.keys(params).sort()
+  let signStr = ''
+  for (const key of sortedKeys) signStr += `${key}=${params[key]}&`
+  signStr += `app_key=${TENCENT_APP_KEY}`
+  const sign = md5Hash(signStr).toUpperCase()
+  params.sign = sign
+  const response = await axios.post(TENCENT_TRANSLATE_URL, new URLSearchParams(params), { timeout: 10000 })
+  if (response.data?.ret === 0 && response.data?.data?.target_text) return response.data.data.target_text
+  throw new Error(`腾讯API错误: ${response.data?.msg || '未知错误'}`)
+}
 
 // 调用百度翻译API的函数
 async function callBaiduTranslateAPI(word: string): Promise<WordInfo | null> {
   if (!BAIDU_APP_ID || !BAIDU_SECRET_KEY) {
-    console.log('百度翻译API密钥未配置，跳过百度翻译');
-    return null;
+    console.log('百度翻译API密钥未配置，跳过百度翻译')
+    return null
   }
-
   try {
-    console.log(`调用百度翻译API查询单词: ${word}`);
-    
-    // 生成随机数
-    const salt = Date.now().toString();
-    // 构建签名
-    const sign = await md5Hash(`${BAIDU_APP_ID}${word}${salt}${BAIDU_SECRET_KEY}`);
-    
-    // 发送请求
-    const response = await axios.post(BAIDU_TRANSLATE_URL, {
-      q: word,
-      from: 'en',
-      to: 'zh',
-      appid: BAIDU_APP_ID,
-      salt: salt,
-      sign: sign
-    }, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      timeout: 15000 // 增加超时时间
-    });
-    
-    console.log(`百度翻译API响应状态: ${response.status}`);
-    
-    // 检查API错误
-    if (response.data && response.data.error_code) {
-      console.error(`百度翻译API错误: ${response.data.error_code} - ${response.data.error_msg}`, response.data);
-      return null;
+    const salt = Date.now().toString()
+    const sign = md5Hash(`${BAIDU_APP_ID}${word}${salt}${BAIDU_SECRET_KEY}`)
+    const params = new URLSearchParams({ q: word, from: 'en', to: 'zh', appid: BAIDU_APP_ID, salt, sign })
+    const response = await axios.post(BAIDU_TRANSLATE_URL, params, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 })
+    if (response.data?.error_code) {
+      console.error(`百度翻译API错误: ${response.data.error_code} - ${response.data.error_msg}`, response.data)
+      return null
     }
-    
-    // 检查响应
-    if (response.data && response.data.trans_result && response.data.trans_result.length > 0) {
-      const translatedText = response.data.trans_result.map((item: any) => item.dst).join(', ');
-      console.log(`翻译成功: "${word}" -> "${translatedText}"`);
-      
-      return {
-        phonetic: `/${word}/`,
-        definitions: [translatedText, '英语单词'],
-        examples: [`This is an example sentence with "${word}".`, `"${word}" is an English word.`],
-        source: 'baidu'
-      };
-    } else {
-      console.error(`翻译响应格式异常:`, response.data);
-      return null;
+    if (response.data?.trans_result?.length > 0) {
+      const translatedText = response.data.trans_result.map((item: any) => item.dst).join(', ')
+      return { phonetic: `/${word}/`, definitions: [translatedText] }
     }
-  } catch (error) {
-    console.error('百度翻译API调用失败:', {
-      error: error instanceof Error ? error.message : error,
-      response: (error as any)?.response?.data,
-      status: (error as any)?.response?.status
-    });
-    return null;
+    console.error('翻译响应格式异常:', response.data)
+    return null
+  } catch (error: any) {
+    console.error('百度翻译API调用失败:', { error: error?.message || error, response: error?.response?.data, status: error?.response?.status })
+    return null
   }
 }
 
 // 翻译单词函数（包含缓存和回退机制）
 async function translateWord(word: string): Promise<WordInfo> {
-  // 检查KV缓存
+  const cacheKey = `word_translation:${word.toLowerCase()}`
   try {
-    const cacheKey = `word_translation:${word.toLowerCase()}`;
-    const cachedResult = await kv.get<string>(cacheKey);
-    
-    if (cachedResult) {
-      console.log(`从缓存获取翻译: ${word}`);
-      return JSON.parse(cachedResult);
-    }
-  } catch (error) {
-    console.error('从缓存读取失败:', error);
+    const cached = await kv.get<string>(cacheKey)
+    if (cached) return JSON.parse(cached)
+  } catch (e) {
+    console.error('从缓存读取失败:', e)
   }
-  
+  const tryBuild = (zh: string): WordInfo => ({ phonetic: `/${word}/`, definitions: [zh] })
+  const errors: string[] = []
+  // 1) 腾讯
   try {
-    // 首先尝试百度翻译API
-    if (BAIDU_APP_ID && BAIDU_SECRET_KEY) {
-      const baiduResult = await callBaiduTranslateAPI(word);
-      if (baiduResult) {
-        // 缓存成功的翻译结果
-        try {
-          const cacheKey = `word_translation:${word.toLowerCase()}`;
-          await kv.set(cacheKey, JSON.stringify(baiduResult), { ex: 3600 }); // 缓存1小时 - 优化缓存策略
-          console.log(`单词翻译结果已缓存1小时: ${word}`);
-        } catch (error) {
-          console.error('缓存翻译结果失败:', error);
-        }
-        return baiduResult;
-      }
-    }
-    
-    // 如果百度翻译失败，返回基础翻译
-    return {
-      phonetic: `/${word}/`,
-      definitions: [`${word}`, '英语单词 (翻译服务暂时不可用)'],
-      examples: [`This is an example sentence with "${word}".`, `"${word}" is an English word.`],
-      source: 'fallback'
-    };
-  } catch (error) {
-    console.error('翻译服务错误:', error);
-    return {
-      phonetic: `/${word}/`,
-      definitions: [`${word} (翻译服务暂不可用)`],
-      examples: [`This is an example sentence with "${word}".`],
-      source: 'error_fallback'
-    };
+    const zh = await callTencentTranslateAPI(word)
+    const res = tryBuild(zh)
+    await kv.set(cacheKey, JSON.stringify(res), { ex: 3600 })
+    return res
+  } catch (e: any) {
+    errors.push(`腾讯翻译: ${e.message}`)
+    console.warn('腾讯翻译API失败，尝试火山AI:', e.message)
   }
+  // 2) 火山
+  try {
+    const zh = await callVolcanoAPI(word)
+    const res = tryBuild(zh)
+    await kv.set(cacheKey, JSON.stringify(res), { ex: 3600 })
+    return res
+  } catch (e: any) {
+    errors.push(`火山AI: ${e.message}`)
+    console.warn('火山AI失败，尝试百度翻译:', e.message)
+  }
+  // 3) 百度
+  try {
+    const baidu = await callBaiduTranslateAPI(word)
+    if (baidu) {
+      await kv.set(cacheKey, JSON.stringify(baidu), { ex: 3600 })
+      return baidu
+    }
+  } catch (e: any) {
+    errors.push(`百度翻译: ${e.message}`)
+  }
+  console.error('所有翻译API都失败了:', errors)
+  return { phonetic: `/${word}/`, definitions: [word] }
 }
 
 export default async function handler(request: Request) {
@@ -282,16 +211,9 @@ export default async function handler(request: Request) {
     const normalizedWord = word.toLowerCase().trim();
     
     // 检查本地词典
-    const localResult = localDictionary[normalizedWord];
+    const localResult = localDictionary[normalizedWord]
     if (localResult) {
-      return new Response(JSON.stringify({
-        success: true,
-        data: {
-          success: true,
-          data: localResult
-        },
-        source: 'local'
-      }), {
+      return new Response(JSON.stringify(localResult), {
         status: 200,
         headers: {
           'Content-Type': 'application/json',
@@ -299,41 +221,32 @@ export default async function handler(request: Request) {
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type'
         }
-      });
+      })
     }
     
     // 如果没有本地词典数据，使用翻译服务
-    const translationResult = await translateWord(normalizedWord);
-    
-    return new Response(JSON.stringify({
-      success: true,
-      data: {
-        success: true,
-        data: translationResult
-      },
-      source: 'translation'
-    }), {
+    const translationResult = await translateWord(normalizedWord)
+    return new Response(JSON.stringify(translationResult), {
       status: 200,
       headers: {
         ...headers,
         'Content-Type': 'application/json'
       }
-    });
-  } catch (error) {
-    console.error('单词查询错误:', error);
-    return new Response(JSON.stringify({ 
-      success: false,
-      error: '单词查询失败',
-      details: error instanceof Error ? error.message : '未知错误',
-      timestamp: new Date().toISOString()
-    }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
-      }
-    });
-  }
+    })
+
+
+async function callVolcanoAPI(word: string): Promise<string> {
+  const VOLCANO_API_KEY = getEnvVar('VOLCANO_API_KEY')
+  const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions'
+  if (!VOLCANO_API_KEY) throw new Error('火山AI API密钥未配置')
+  const messages = [
+    { role: 'system', content: '你是一个专业的翻译助手，将用户提供的文本翻译成指定语言。只返回翻译结果。' },
+    { role: 'user', content: `请将以下文本翻译成中文：\n\n${word}` }
+  ]
+  const response = await axios.post(
+    VOLCANO_API_URL,
+    { model: 'doubao-1-5-lite-32k-250115', messages },
+    { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${VOLCANO_API_KEY}` }, timeout: 30000 }
+  )
+  return response.data?.choices?.[0]?.message?.content || ''
 }
