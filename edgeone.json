@@ -7,11 +7,11 @@
   "rewrites": [
     {
       "source": "/assets/*",
-      "destination": "/assets/:splat"
+      "destination": "/assets/$1"
     },
     {
       "source": "/api/*",
-      "destination": "/api/:splat"
+      "destination": "/api/$1"
     },
     {
       "source": "/*",
@@ -29,11 +29,11 @@
     },
     {
       "source": "/assets/*.js",
-      "headers": [{ "key": "Content-Type", "value": "application/javascript; charset=utf-8" }]
+      "headers": [{ "key": "Content-Type", "value": "application/javascript" }]
     },
     {
       "source": "/assets/*.css",
-      "headers": [{ "key": "Content-Type", "value": "text/css; charset=utf-8" }]
+      "headers": [{ "key": "Content-Type", "value": "text/css" }]
     },
     {
       "source": "/assets/*.svg",
