@@ -1,4 +1,5 @@
 import axios from 'axios';
+import CryptoJS from 'crypto-js';
 
 // 简化的KV存储模拟（使用内存缓存）
 const memoryCache = new Map<string, { value: string; expiry: number }>();
@@ -29,17 +30,10 @@ const kv = {
   }
 };
 
-// 简化的MD5哈希函数（使用crypto-js替代Web Crypto API）
+// 真实的MD5哈希函数（使用 crypto-js）
 async function md5Hash(text: string): Promise<string> {
   try {
-    // 使用简单的哈希算法替代MD5
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      const char = text.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // 转换为32位整数
-    }
-    return Math.abs(hash).toString(16);
+    return CryptoJS.MD5(text).toString();
   } catch (error) {
     console.error('哈希计算失败:', error);
     return Date.now().toString(16);
@@ -64,9 +58,9 @@ interface Response {
 // 允许的源
 const ALLOWED_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174', 'http://localhost:8080', 'http://localhost:8081']
 
-// 从环境变量获取配置
-const VOLCANO_API_KEY = process.env.VOLCANO_API_KEY || '';
-const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
+// 从环境变量获取配置（支持 VITE 前缀别名）
+const VOLCANO_API_KEY = process.env.VITE_VOLCANO_API_KEY || process.env.VOLCANO_API_KEY || '';
+const VOLCANO_API_URL = process.env.VITE_VOLCANO_APIURL || process.env.VOLCANO_API_URL || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
 const BAIDU_APP_ID = process.env.VITE_BAIDU_APP_ID || process.env.BAIDU_APP_ID || '';
 const BAIDU_SECRET_KEY = process.env.VITE_BAIDU_SECRET_KEY || process.env.BAIDU_SECRET_KEY || '';
 const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/vip/translate';
