@@ -80,12 +80,24 @@ export const queryWord = async (word: string, options?: QueryWordOptions | boole
     // 直接调用API端点
     const response = await httpClient.get(`/api/word-query?word=${encodeURIComponent(normalizedWord)}`)
     
-    // 检查新的响应格式
-    if (!response.data || !response.data.success || !response.data.data) {
+    // 统一解析两种响应格式：直接格式与嵌套格式
+    const raw = response.data
+    let apiData: any = null
+
+    if (raw && typeof raw === 'object') {
+      if ('success' in raw && (raw as any).success && (raw as any).data) {
+        const inner: any = (raw as any).data
+        apiData = (inner && typeof inner === 'object' && 'success' in inner)
+          ? (inner.success ? inner.data : null)
+          : inner
+      } else {
+        apiData = raw
+      }
+    }
+
+    if (!apiData || typeof apiData !== 'object') {
       throw new Error('响应数据格式错误')
     }
-    
-    const apiData = response.data.data
     
     // 检查API数据格式
     if (!Array.isArray(apiData.definitions) || apiData.definitions.length === 0) {
