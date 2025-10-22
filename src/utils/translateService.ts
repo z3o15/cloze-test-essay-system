@@ -1,5 +1,6 @@
 // 翻译服务模块
 import axios from 'axios'
+import * as CryptoJS from 'crypto-js'
 
 // 创建超时Promise
 const createTimeoutPromise = (ms: number): Promise<never> => {
@@ -43,11 +44,7 @@ const getLocalTranslation = (text: string): string | null => {
 
 // MD5哈希函数（用于签名）
 async function md5Hash(text: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(text)
-  const hashBuffer = await crypto.subtle.digest('MD5', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+  return CryptoJS.MD5(text).toString()
 }
 
 // 获取环境变量
