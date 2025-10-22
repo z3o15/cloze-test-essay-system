@@ -96,13 +96,21 @@ const callLocalWordQueryAPI = async (word: string): Promise<WordInfo | null> => 
   try {
     const response = await httpClient.get(`/api/word-query?word=${encodeURIComponent(word)}`)
     
-    // 检查新的响应格式 - API返回 {success: true, data: {...}}
+    // 处理开发服务器的直接响应格式 - {phonetic: string, definitions: string[]}
+    if (response.data && response.data.phonetic && response.data.definitions) {
+      return {
+        phonetic: response.data.phonetic || '',
+        definitions: response.data.definitions || []
+      }
+    }
+    
+    // 处理Edge Functions的嵌套响应格式 - {success: true, data: {success: true, data: {...}}}
     if (response.data && response.data.success && response.data.data) {
       const apiData = response.data.data
-      if (isValidResponseData(apiData)) {
+      if (apiData.success && apiData.data && isValidResponseData(apiData.data)) {
         return {
-          phonetic: apiData.phonetic || '',
-          definitions: apiData.definitions || []
+          phonetic: apiData.data.phonetic || '',
+          definitions: apiData.data.definitions || []
         }
       }
     }
