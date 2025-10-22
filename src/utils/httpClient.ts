@@ -1,16 +1,15 @@
 import axios from 'axios'
 
 // 确定API基础URL
-const getApiBaseUrl = (): string => {
-  // 在开发环境中，使用本地Edge Functions服务器
+const getApiBaseUrl = (): string | undefined => {
+  // 在开发环境中，返回本地服务器地址
   if (import.meta.env.DEV) {
-    return 'http://localhost:3000'
+    return 'http://localhost:3000';
   }
   
-  // 在生产环境中，使用相对路径避免跨域问题
-  // EdgeOne会通过路由配置将/api/*请求转发到对应的Edge Functions
-  return ''
-}
+  // 在生产环境中，返回 undefined，让 axios 使用相对路径
+  return undefined;
+};
 
 // 创建axios实例
 const httpClient = axios.create({
