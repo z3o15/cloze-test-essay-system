@@ -55,8 +55,8 @@ interface WordInfo {
 }
 
 // 环境变量
-const BAIDU_APP_ID = process.env.BAIDU_APP_ID || '';
-const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY || '';
+const BAIDU_APP_ID = process.env.VITE_BAIDU_APP_ID || process.env.BAIDU_APP_ID || '';
+const BAIDU_SECRET_KEY = process.env.VITE_BAIDU_SECRET_KEY || process.env.BAIDU_SECRET_KEY || '';
 const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
 
 // 本地词典数据（作为回退）
@@ -286,7 +286,10 @@ export default async function handler(request: Request) {
     if (localResult) {
       return new Response(JSON.stringify({
         success: true,
-        data: localResult,
+        data: {
+          success: true,
+          data: localResult
+        },
         source: 'local'
       }), {
         status: 200,
@@ -304,7 +307,10 @@ export default async function handler(request: Request) {
     
     return new Response(JSON.stringify({
       success: true,
-      data: translationResult,
+      data: {
+        success: true,
+        data: translationResult
+      },
       source: 'translation'
     }), {
       status: 200,

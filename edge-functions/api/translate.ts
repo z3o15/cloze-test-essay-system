@@ -67,8 +67,8 @@ const ALLOWED_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http
 // 从环境变量获取配置
 const VOLCANO_API_KEY = process.env.VOLCANO_API_KEY || '';
 const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions';
-const BAIDU_APP_ID = process.env.BAIDU_APP_ID || '';
-const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY || '';
+const BAIDU_APP_ID = process.env.VITE_BAIDU_APP_ID || process.env.BAIDU_APP_ID || '';
+const BAIDU_SECRET_KEY = process.env.VITE_BAIDU_SECRET_KEY || process.env.BAIDU_SECRET_KEY || '';
 const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/vip/translate';
 
 // 调用百度翻译API

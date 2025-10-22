@@ -15,8 +15,8 @@ app.use(cors());
 app.use(express.json());
 
 // 从环境变量获取配置
-const BAIDU_APP_ID = process.env.BAIDU_APP_ID || '';
-const BAIDU_SECRET_KEY = process.env.BAIDU_SECRET_KEY || '';
+const BAIDU_APP_ID = process.env.VITE_BAIDU_APP_ID || process.env.BAIDU_APP_ID || '';
+const BAIDU_SECRET_KEY = process.env.VITE_BAIDU_SECRET_KEY || process.env.BAIDU_SECRET_KEY || '';
 const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate';
 
 // MD5哈希函数
