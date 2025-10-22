@@ -66,7 +66,20 @@ const localDictionary: Record<string, WordInfo> = {
 
 // 调用腾讯翻译API的函数
 const getEnvVar = (key: string): string => {
-  return process.env[`VITE_${key}`] || process.env[key] || ''
+  const aliases: Record<string, string[]> = {
+    TENCENT_APP_ID: ['TENCENT_APP_ID', 'TENCENT_ID', 'SecretId'],
+    TENCENT_APP_KEY: ['TENCENT_APP_KEY', 'TENCENT_KEY', 'SecretKey'],
+    VOLCANO_API_URL: ['VOLCANO_API_URL', 'VOLCANO_APIURL'],
+    VOLCANO_API_KEY: ['VOLCANO_API_KEY'],
+    BAIDU_APP_ID: ['BAIDU_APP_ID'],
+    BAIDU_SECRET_KEY: ['BAIDU_SECRET_KEY']
+  }
+  const candidates = [key, ...(aliases[key] || [])]
+  for (const k of candidates) {
+    const v = process.env[`VITE_${k}`] || process.env[k]
+    if (v) return v
+  }
+  return ''
 }
 async function callTencentTranslateAPI(word: string): Promise<string> {
   const TENCENT_APP_ID = getEnvVar('TENCENT_APP_ID')
@@ -237,7 +250,7 @@ export default async function handler(request: Request) {
 
 async function callVolcanoAPI(word: string): Promise<string> {
   const VOLCANO_API_KEY = getEnvVar('VOLCANO_API_KEY')
-  const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions'
+  const VOLCANO_API_URL = getEnvVar('VOLCANO_API_URL') || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions'
   if (!VOLCANO_API_KEY) throw new Error('火山AI API密钥未配置')
   const messages = [
     { role: 'system', content: '你是一个专业的翻译助手，将用户提供的文本翻译成指定语言。只返回翻译结果。' },
