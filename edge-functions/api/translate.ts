@@ -143,9 +143,22 @@ function mapLangForTencent(lang: string, isSource: boolean): string {
 
 // 腾讯开放平台翻译
 async function callTencentTranslateAPI(text: string, sourceLanguage: string, targetLanguage: string) {
+  console.log('腾讯翻译API调用开始:', {
+    textLength: text.length,
+    sourceLanguage,
+    targetLanguage,
+    hasAppId: !!TENCENT_APP_ID,
+    hasAppKey: !!TENCENT_APP_KEY,
+    apiUrl: TENCENT_TRANSLATE_URL
+  });
+
   if (!TENCENT_APP_ID || !TENCENT_APP_KEY) {
-    console.error('腾讯翻译API密钥未配置');
-    throw new Error('腾讯翻译API密钥未配置');
+    const error = '腾讯翻译API密钥未配置';
+    console.error(error, {
+      TENCENT_APP_ID: TENCENT_APP_ID || 'undefined',
+      TENCENT_APP_KEY: TENCENT_APP_KEY ? 'defined' : 'undefined'
+    });
+    throw new Error(error);
   }
 
   const time_stamp = Math.floor(Date.now() / 1000).toString();
@@ -153,6 +166,13 @@ async function callTencentTranslateAPI(text: string, sourceLanguage: string, tar
 
   const source = mapLangForTencent(sourceLanguage, true);
   const target = mapLangForTencent(targetLanguage, false);
+
+  console.log('腾讯翻译语言映射:', { 
+    原始源语言: sourceLanguage, 
+    映射源语言: source,
+    原始目标语言: targetLanguage,
+    映射目标语言: target
+  });
 
   const params: Record<string, string> = {
     app_id: TENCENT_APP_ID,
@@ -169,10 +189,22 @@ async function callTencentTranslateAPI(text: string, sourceLanguage: string, tar
   const signStr = `${paramStr}&app_key=${TENCENT_APP_KEY}`;
   const sign = (await md5Hash(signStr)).toUpperCase();
 
+  console.log('腾讯翻译签名信息:', {
+    paramStr: paramStr.substring(0, 100) + '...',
+    signStr: signStr.substring(0, 50) + '...',
+    sign: sign.substring(0, 8) + '...'
+  });
+
   const form = new URLSearchParams({ ...params, sign });
 
   try {
-    console.log('调用腾讯翻译API:', { text: text.substring(0, 50), source, target });
+    console.log('发送腾讯翻译请求:', { 
+      url: TENCENT_TRANSLATE_URL,
+      text: text.substring(0, 50), 
+      source, 
+      target,
+      formDataSize: form.toString().length
+    });
 
     const response = await axios.post(
       TENCENT_TRANSLATE_URL,
@@ -185,9 +217,16 @@ async function callTencentTranslateAPI(text: string, sourceLanguage: string, tar
       }
     );
 
+    console.log('腾讯翻译响应:', {
+      status: response.status,
+      statusText: response.statusText,
+      dataType: typeof response.data,
+      dataKeys: response.data ? Object.keys(response.data) : []
+    });
+
     const data = response.data;
     if (data.ret !== 0) {
-      console.error('腾讯翻译API错误:', data);
+      console.error('腾讯翻译API业务错误:', data);
       throw new Error(`Tencent API error: ${data.msg || data.ret}`);
     }
 
@@ -197,13 +236,22 @@ async function callTencentTranslateAPI(text: string, sourceLanguage: string, tar
       throw new Error('Empty translation result');
     }
 
-    console.log('腾讯翻译成功:', translatedText.substring(0, 50));
+    console.log('腾讯翻译成功:', {
+      原文: text.substring(0, 50),
+      译文: translatedText.substring(0, 50),
+      完整长度: translatedText.length
+    });
     return translatedText;
   } catch (error) {
     console.error('腾讯翻译API调用失败:', {
       error: error instanceof Error ? error.message : error,
       response: (error as any)?.response?.data,
-      status: (error as any)?.response?.status
+      status: (error as any)?.response?.status,
+      config: (error as any)?.config ? {
+        url: (error as any).config.url,
+        method: (error as any).config.method,
+        headers: (error as any).config.headers
+      } : null
     });
     throw error;
   }
@@ -344,13 +392,31 @@ export default async function onRequest(context: any) {
   }
   
   try {
+    // 添加环境变量调试信息
+    console.log('环境变量检查:', {
+      hasTencent: !!(TENCENT_APP_ID && TENCENT_APP_KEY),
+      hasBaidu: !!(BAIDU_APP_ID && BAIDU_SECRET_KEY),
+      hasVolcano: !!VOLCANO_API_KEY,
+      tencentAppId: TENCENT_APP_ID ? `${TENCENT_APP_ID.substring(0, 4)}***` : 'undefined',
+      tencentKey: TENCENT_APP_KEY ? `${TENCENT_APP_KEY.substring(0, 4)}***` : 'undefined'
+    });
+
     // 获取请求体数据
     let body;
     try {
       body = await request.json();
+      console.log('请求体解析成功:', { 
+        text: body.text?.substring(0, 50), 
+        sourceLanguage: body.sourceLanguage, 
+        targetLanguage: body.targetLanguage,
+        provider: body.provider 
+      });
     } catch (e) {
       console.error('解析请求体失败:', e);
-      body = {};
+      return new Response(JSON.stringify({ error: '请求体格式错误' }), {
+        status: 400,
+        headers: corsHeaders
+      });
     }
     
     const { text, targetLanguage = 'zh', sourceLanguage = 'en', useBaidu = true, skipCache = false, provider: preferredProvider } = body;
