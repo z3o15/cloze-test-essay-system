@@ -65,6 +65,11 @@ const BAIDU_APP_ID = process.env.VITE_BAIDU_APP_ID || process.env.BAIDU_APP_ID |
 const BAIDU_SECRET_KEY = process.env.VITE_BAIDU_SECRET_KEY || process.env.BAIDU_SECRET_KEY || '';
 const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/vip/translate';
 
+// 腾讯开放平台（api.ai.qq.com）环境变量与URL（支持多种命名别名）
+const TENCENT_APP_ID = process.env.VITE_TENCENT_APP_ID || process.env.TENCENT_APP_ID || process.env.TENCENT_APPID || '';
+const TENCENT_APP_KEY = process.env.VITE_TENCENT_KEY || process.env.VITE_TENCENT_APP_KEY || process.env.TENCENT_APP_KEY || process.env.TENCENT_KEY || '';
+const TENCENT_TRANSLATE_URL = process.env.VITE_TENCENT_API_URL || process.env.TENCENT_API_URL || 'https://api.ai.qq.com/fcgi-bin/nlp/nlp_texttrans';
+
 // 调用百度翻译API
 async function callBaiduTranslateAPI(text: string, from: string, to: string) {
   if (!BAIDU_APP_ID || !BAIDU_SECRET_KEY) {
@@ -117,11 +122,90 @@ async function callBaiduTranslateAPI(text: string, from: string, to: string) {
   }
 }
 
+// 语言映射：腾讯开放平台
+function mapLangForTencent(lang: string, isSource: boolean): string {
+  const l = (lang || '').toLowerCase();
+  if (isSource && (l === 'auto' || !l)) return 'auto';
+  if (l.startsWith('zh') || l === 'cn') return 'zh';
+  if (l === 'en') return 'en';
+  if (l === 'ja' || l === 'jp') return 'jp';
+  if (l === 'ko' || l === 'kr') return 'kr';
+  return isSource ? 'auto' : 'zh';
+}
+
+// 腾讯开放平台翻译
+async function callTencentTranslateAPI(text: string, sourceLanguage: string, targetLanguage: string) {
+  if (!TENCENT_APP_ID || !TENCENT_APP_KEY) {
+    console.error('腾讯翻译API密钥未配置');
+    throw new Error('腾讯翻译API密钥未配置');
+  }
+
+  const time_stamp = Math.floor(Date.now() / 1000).toString();
+  const nonce_str = Math.random().toString(36).slice(2, 10);
+
+  const source = mapLangForTencent(sourceLanguage, true);
+  const target = mapLangForTencent(targetLanguage, false);
+
+  const params: Record<string, string> = {
+    app_id: TENCENT_APP_ID,
+    time_stamp,
+    nonce_str,
+    source,
+    target,
+    text
+  };
+
+  // 按键名 ASCII 升序排序并拼接参数
+  const sortedKeys = Object.keys(params).sort();
+  const paramStr = sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join('&');
+  const signStr = `${paramStr}&app_key=${TENCENT_APP_KEY}`;
+  const sign = (await md5Hash(signStr)).toUpperCase();
+
+  const form = new URLSearchParams({ ...params, sign });
+
+  try {
+    console.log('调用腾讯翻译API:', { text: text.substring(0, 50), source, target });
+
+    const response = await axios.post(
+      TENCENT_TRANSLATE_URL,
+      form.toString(),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        timeout: 15000
+      }
+    );
+
+    const data = response.data;
+    if (data.ret !== 0) {
+      console.error('腾讯翻译API错误:', data);
+      throw new Error(`Tencent API error: ${data.msg || data.ret}`);
+    }
+
+    const translatedText = data?.data?.trans_text || '';
+    if (!translatedText.trim()) {
+      console.error('腾讯翻译返回空结果:', data);
+      throw new Error('Empty translation result');
+    }
+
+    console.log('腾讯翻译成功:', translatedText.substring(0, 50));
+    return translatedText;
+  } catch (error) {
+    console.error('腾讯翻译API调用失败:', {
+      error: error instanceof Error ? error.message : error,
+      response: (error as any)?.response?.data,
+      status: (error as any)?.response?.status
+    });
+    throw error;
+  }
+}
+
 // 调用火山AI API的函数
 async function callVolcanoAPI(text: string, targetLanguage: string, sourceLanguage: string) {
   if (!VOLCANO_API_KEY) {
     console.error('火山AI API密钥未配置');
-    throw new Error('API密钥未配置');
+    throw new Error('火山AI API密钥未配置');
   }
 
   try {
@@ -225,7 +309,7 @@ async function cacheTranslationResult(
 
 // EdgeOne Pages 入口函数 - 处理所有请求
 export default async function onRequest(context: any) {
-  const { request, env } = context;
+  const { request } = context;
   
   // 设置CORS头
   const corsHeaders = {
@@ -287,25 +371,62 @@ export default async function onRequest(context: any) {
       }
     }
 
-    let translatedText = ''
-    let provider = ''
-    
-    // 优先使用百度翻译API（如果配置了且请求允许）
-    if (useBaidu && BAIDU_APP_ID && BAIDU_SECRET_KEY) {
+    let translatedText = '';
+    let provider = '';
+
+    const hasTencent = !!(TENCENT_APP_ID && TENCENT_APP_KEY);
+    const hasBaidu = !!(BAIDU_APP_ID && BAIDU_SECRET_KEY);
+    const hasVolcano = !!(VOLCANO_API_KEY);
+
+    // 选择提供者顺序：腾讯 -> 百度 -> 火山（根据可用性）
+    if (hasTencent) {
       try {
-        translatedText = await callBaiduTranslateAPI(text, sourceLanguage, targetLanguage)
-        provider = 'baidu'
-        console.log('百度翻译成功')
-      } catch (baiduError) {
-        console.error('百度翻译失败，回退到火山AI:', baiduError)
-        // 百度翻译失败，回退到火山AI
-        translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage)
-        provider = 'volcano'
+        translatedText = await callTencentTranslateAPI(text, sourceLanguage, targetLanguage);
+        provider = 'tencent';
+        console.log('腾讯翻译成功');
+      } catch (tencentError) {
+        console.error('腾讯翻译失败，尝试其他提供者:', tencentError);
+        if (useBaidu && hasBaidu) {
+          try {
+            translatedText = await callBaiduTranslateAPI(text, sourceLanguage, targetLanguage);
+            provider = 'baidu';
+          } catch (baiduError) {
+            console.error('百度翻译失败，回退到火山AI:', baiduError);
+            if (hasVolcano) {
+              translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
+              provider = 'volcano';
+            } else {
+              throw baiduError;
+            }
+          }
+        } else if (hasVolcano) {
+          translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
+          provider = 'volcano';
+        } else {
+          throw tencentError;
+        }
       }
+    } else if (useBaidu && hasBaidu) {
+      try {
+        translatedText = await callBaiduTranslateAPI(text, sourceLanguage, targetLanguage);
+        provider = 'baidu';
+      } catch (baiduError) {
+        console.error('百度翻译失败，回退到火山AI:', baiduError);
+        if (hasVolcano) {
+          translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
+          provider = 'volcano';
+        } else {
+          throw baiduError;
+        }
+      }
+    } else if (hasVolcano) {
+      translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage);
+      provider = 'volcano';
     } else {
-      // 直接使用火山AI
-      translatedText = await callVolcanoAPI(text, targetLanguage, sourceLanguage)
-      provider = 'volcano'
+      return new Response(JSON.stringify({ error: '未配置任何可用的翻译服务（腾讯/百度/火山）' }), {
+        status: 503,
+        headers: corsHeaders
+      });
     }
     
     // 缓存翻译结果
@@ -329,8 +450,8 @@ export default async function onRequest(context: any) {
     let statusCode = 500;
     
     if (error instanceof Error) {
-      if (error.message.includes('API密钥未配置')) {
-        errorMessage = '翻译服务配置错误';
+      if (error.message.includes('密钥未配置')) {
+        errorMessage = '翻译服务配置错误（请检查腾讯/百度/火山密钥）';
         statusCode = 503;
       } else if (error.message.includes('Empty translation result')) {
         errorMessage = '翻译结果为空，请检查输入文本';
