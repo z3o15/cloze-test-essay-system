@@ -83,39 +83,59 @@ export const isAdvancedWord = (word: string): boolean => {
   return determineWordLevel(word) === 'advanced'
 }
 
-// 验证API响应数据
-const isValidResponseData = (data: any): boolean => {
-  return data && 
-         typeof data === 'object' && 
-         Array.isArray(data.definitions) && 
-         data.definitions.length > 0
-}
-
-// 调用本地单词查询API
+// 调用本地单词查询API（增强响应解析）
 const callLocalWordQueryAPI = async (word: string): Promise<WordInfo | null> => {
   try {
     const response = await httpClient.get(`/api/word-query?word=${encodeURIComponent(word)}`)
-    
-    // 处理开发服务器的直接响应格式 - {phonetic: string, definitions: string[]}
-    if (response.data && response.data.phonetic && response.data.definitions) {
-      return {
-        phonetic: response.data.phonetic || '',
-        definitions: response.data.definitions || []
+    const raw = response.data
+
+    let apiData: any = null
+
+    // 1) 解析对象格式（直接或嵌套）
+    if (raw && typeof raw === 'object') {
+      if ('success' in raw && (raw as any).data) {
+        const inner: any = (raw as any).data
+        apiData = (inner && typeof inner === 'object' && 'success' in inner)
+          ? (inner.success ? inner.data : null)
+          : inner
+      } else {
+        apiData = raw
       }
-    }
-    
-    // 处理Edge Functions的嵌套响应格式 - {success: true, data: {success: true, data: {...}}}
-    if (response.data && response.data.success && response.data.data) {
-      const apiData = response.data.data
-      if (apiData.success && apiData.data && isValidResponseData(apiData.data)) {
-        return {
-          phonetic: apiData.data.phonetic || '',
-          definitions: apiData.data.definitions || []
+    } else if (typeof raw === 'string') {
+      // 2) 字符串尝试JSON解析
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object') {
+          if ('success' in parsed && (parsed as any).data) {
+            const inner: any = (parsed as any).data
+            apiData = (inner && typeof inner === 'object' && 'success' in inner)
+              ? (inner.success ? inner.data : null)
+              : inner
+          } else {
+            apiData = parsed
+          }
         }
+      } catch {
+        // 非JSON字符串，无法解析
+        apiData = null
       }
     }
-    
-    return null
+
+    if (!apiData || typeof apiData !== 'object') {
+      return null
+    }
+
+    // 统一标准化字段
+    const phonetic = apiData.phonetic || ''
+    const definitions = Array.isArray(apiData.definitions)
+      ? apiData.definitions
+      : (typeof apiData.definitions === 'string' ? [apiData.definitions] : [])
+
+    if (!definitions || definitions.length === 0) {
+      return null
+    }
+
+    return { phonetic, definitions }
   } catch (error) {
     console.error('单词查询API调用失败:', error)
     return null

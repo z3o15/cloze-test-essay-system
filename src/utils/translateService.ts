@@ -52,8 +52,21 @@ async function md5Hash(text: string): Promise<string> {
 
 // 获取环境变量
 const getEnvVar = (key: string): string => {
-  // 支持Vite环境变量和普通环境变量
-  return import.meta.env?.[`VITE_${key}`] || import.meta.env?.[key] || process.env?.[`VITE_${key}`] || process.env?.[key] || ''
+  // 针对常见不同命名的兼容别名
+  const aliases: Record<string, string[]> = {
+    TENCENT_APP_ID: ['TENCENT_APP_ID', 'TENCENT_ID', 'TENCENT_SECRET_ID', 'SecretId'],
+    TENCENT_APP_KEY: ['TENCENT_APP_KEY', 'TENCENT_KEY', 'TENCENT_SECRET_KEY', 'SecretKey'],
+    VOLCANO_API_URL: ['VOLCANO_API_URL', 'VOLCANO_APIURL'],
+    VOLCANO_API_KEY: ['VOLCANO_API_KEY'],
+    BAIDU_APP_ID: ['BAIDU_APP_ID'],
+    BAIDU_SECRET_KEY: ['BAIDU_SECRET_KEY']
+  }
+  const candidates = [key, ...(aliases[key] || [])]
+  for (const k of candidates) {
+    const v = (import.meta.env?.[`VITE_${k}`] as string) || (import.meta.env?.[k] as string) || process.env?.[`VITE_${k}`] || process.env?.[k]
+    if (v) return v
+  }
+  return ''
 }
 
 // 调用腾讯翻译API
@@ -113,7 +126,7 @@ const callTencentTranslateAPI = async (text: string): Promise<string> => {
 // 调用火山AI接口
 const callVolcanoAPI = async (text: string): Promise<string> => {
   const VOLCANO_API_KEY = getEnvVar('VOLCANO_API_KEY')
-  const VOLCANO_API_URL = 'https://ark.cn-beijing.volces.com/api/v3/chat/completions'
+  const VOLCANO_API_URL = getEnvVar('VOLCANO_API_URL') || 'https://ark.cn-beijing.volces.com/api/v3/chat/completions'
   
   if (!VOLCANO_API_KEY) {
     throw new Error('火山AI API密钥未配置')
