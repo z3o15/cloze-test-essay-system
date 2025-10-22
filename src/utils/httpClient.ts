@@ -1,7 +1,19 @@
 import axios from 'axios'
 
+// 确定API基础URL
+const getApiBaseUrl = (): string => {
+  // 在开发环境中，使用本地Edge Functions服务器
+  if (import.meta.env.DEV) {
+    return 'http://localhost:3000'
+  }
+  
+  // 在生产环境中，使用相对路径（当前域名）
+  return ''
+}
+
 // 创建axios实例
 const httpClient = axios.create({
+  baseURL: getApiBaseUrl(),
   timeout: 5000, // 减少超时时间以更快响应错误
   headers: {
     'Content-Type': 'application/json',
