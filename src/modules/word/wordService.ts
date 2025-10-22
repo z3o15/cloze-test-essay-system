@@ -80,15 +80,22 @@ export const queryWord = async (word: string, options?: QueryWordOptions | boole
     // 直接调用API端点
     const response = await httpClient.get(`/api/word-query?word=${encodeURIComponent(normalizedWord)}`)
     
-    // 检查响应数据
-    if (!response.data || !response.data.phonetic || !Array.isArray(response.data.definitions)) {
-      throw new Error('Invalid API response format')
+    // 检查新的响应格式
+    if (!response.data || !response.data.success || !response.data.data) {
+      throw new Error('响应数据格式错误')
+    }
+    
+    const apiData = response.data.data
+    
+    // 检查API数据格式
+    if (!apiData.phonetic || !Array.isArray(apiData.definitions)) {
+      throw new Error('API数据格式无效')
     }
     
     // 只保留需要的字段，过滤掉examples
     const wordInfo: WordInfo = {
-      phonetic: response.data.phonetic || '',
-      definitions: response.data.definitions || [],
+      phonetic: apiData.phonetic || '',
+      definitions: apiData.definitions || [],
       level: determineWordLevel(word) // 添加难度级别
     }
     

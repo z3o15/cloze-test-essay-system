@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { kv } from '@vercel/kv';
 
 // Web Crypto API 辅助函数
 async function md5Hash(text: string): Promise<string> {
@@ -10,10 +9,7 @@ async function md5Hash(text: string): Promise<string> {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// 导入axios用于HTTP请求
-import axios from 'axios';
-
-// 声明KV存储
+// 声明KV存储（EdgeOne兼容）
 declare const kv: {
   get<T>(key: string): Promise<T | null>;
   set(key: string, value: string, options?: { ex?: number }): Promise<void>;
@@ -241,17 +237,19 @@ export default async function handler(request: Request) {
     const normalizedWord = word.toLowerCase().trim();
     
     // 检查本地词典
-    if (localDictionary[normalizedWord]) {
+    const localResult = localDictionary[normalizedWord];
+    if (localResult) {
       return new Response(JSON.stringify({
-        phonetic: localDictionary[normalizedWord].phonetic,
-        definitions: localDictionary[normalizedWord].definitions,
-        examples: localDictionary[normalizedWord].examples || [],
-        source: 'local_dictionary'
+        success: true,
+        data: localResult,
+        source: 'local'
       }), {
         status: 200,
         headers: {
-          ...headers,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type'
         }
       });
     }
@@ -259,7 +257,11 @@ export default async function handler(request: Request) {
     // 如果没有本地词典数据，使用翻译服务
     const translationResult = await translateWord(normalizedWord);
     
-    return new Response(JSON.stringify(translationResult), {
+    return new Response(JSON.stringify({
+      success: true,
+      data: translationResult,
+      source: 'translation'
+    }), {
       status: 200,
       headers: {
         ...headers,
@@ -267,15 +269,19 @@ export default async function handler(request: Request) {
       }
     });
   } catch (error) {
-    console.error('Word query error:', error);
-    return new Response(JSON.stringify({
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : String(error)
+    console.error('单词查询错误:', error);
+    return new Response(JSON.stringify({ 
+      success: false,
+      error: '单词查询失败',
+      details: error instanceof Error ? error.message : '未知错误',
+      timestamp: new Date().toISOString()
     }), {
       status: 500,
       headers: {
-        ...headers,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
       }
     });
   }

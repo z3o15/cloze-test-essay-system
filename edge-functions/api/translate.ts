@@ -193,25 +193,26 @@ export default async function onRequest(context: any) {
   const { request, env } = context;
   
   // 设置CORS头
-  const response = new Response();
-  response.headers.set('Access-Control-Allow-Origin', '*');
-  response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  response.headers.set('Access-Control-Allow-Headers', 'Content-Type');
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Content-Type': 'application/json'
+  };
   
   // 处理OPTIONS请求
   if (request.method === 'OPTIONS') {
-    response.status = 204;
-    return response;
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders
+    });
   }
   
   // 只处理POST请求
   if (request.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      }
+      headers: corsHeaders
     });
   }
   
@@ -230,10 +231,7 @@ export default async function onRequest(context: any) {
     if (!text || typeof text !== 'string') {
       return new Response(JSON.stringify({ error: '文本内容不能为空' }), {
         status: 400,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
+        headers: corsHeaders
       });
     }
 
@@ -249,10 +247,7 @@ export default async function onRequest(context: any) {
           fromCache: true
         }), {
           status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          }
+          headers: corsHeaders
         });
       }
     }
@@ -289,22 +284,34 @@ export default async function onRequest(context: any) {
       fromCache: false
     }), {
       status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      }
+      headers: corsHeaders
     });
   } catch (error) {
     console.error('翻译处理错误:', error);
-    return new Response(JSON.stringify({ 
-      error: error instanceof Error ? error.message : '翻译服务暂时不可用',
-      details: (error as any)?.response?.data || null
-    }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+    
+    // 增强错误处理，提供更详细的错误信息
+    let errorMessage = '翻译服务暂时不可用，请稍后重试';
+    let statusCode = 500;
+    
+    if (error instanceof Error) {
+      if (error.message.includes('API密钥未配置')) {
+        errorMessage = '翻译服务配置错误';
+        statusCode = 503;
+      } else if (error.message.includes('Empty translation result')) {
+        errorMessage = '翻译结果为空，请检查输入文本';
+        statusCode = 400;
+      } else {
+        errorMessage = error.message;
       }
+    }
+    
+    return new Response(JSON.stringify({ 
+      error: errorMessage,
+      details: (error as any)?.response?.data || null,
+      timestamp: new Date().toISOString()
+    }), {
+      status: statusCode,
+      headers: corsHeaders
     });
   }
 }
