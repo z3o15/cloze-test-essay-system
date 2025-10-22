@@ -1,6 +1,7 @@
 // 翻译服务模块
 import axios from 'axios'
 import * as CryptoJS from 'crypto-js'
+import httpClient from './httpClient'
 
 // 创建超时Promise
 const createTimeoutPromise = (ms: number): Promise<never> => {
@@ -66,58 +67,18 @@ const getEnvVar = (key: string): string => {
   return ''
 }
 
-// 调用腾讯翻译API
-const callTencentTranslateAPI = async (text: string): Promise<string> => {
-  const TENCENT_APP_ID = getEnvVar('TENCENT_APP_ID')
-  const TENCENT_APP_KEY = getEnvVar('TENCENT_APP_KEY')
-  const TENCENT_TRANSLATE_URL = getEnvVar('TENCENT_TRANSLATE_URL') || 'https://api.ai.qq.com/fcgi-bin/nlp/nlp_texttranslate'
-  
-  if (!TENCENT_APP_ID || !TENCENT_APP_KEY) {
-    throw new Error('腾讯翻译API密钥未配置')
+// 通过后端代理翻译（优先）
+const translateViaBackend = async (text: string, sourceLanguage = 'en', targetLanguage = 'zh'): Promise<string> => {
+  const resp = await Promise.race([
+    httpClient.post('/api/translate', { text, sourceLanguage, targetLanguage, useBaidu: true }),
+    createTimeoutPromise(20000)
+  ])
+  const data = resp?.data || {}
+  const translation = data.translation || data?.data?.translation || ''
+  if (typeof translation === 'string' && translation.trim().length > 0) {
+    return translation
   }
-
-  try {
-    // 生成随机字符串
-    const nonceStr = Math.random().toString(36).substr(2, 15)
-    // 时间戳
-    const timeStamp = Math.floor(Date.now() / 1000).toString()
-    
-    // 构建签名字符串
-    const params: any = {
-      app_id: TENCENT_APP_ID,
-      nonce_str: nonceStr,
-      time_stamp: timeStamp,
-      text: text,
-      source: 'auto',
-      target: 'zh'
-    }
-
-    // 对参数进行排序并拼接签名
-    const sortedKeys = Object.keys(params).sort()
-    let signStr = ''
-    for (const key of sortedKeys) {
-      signStr += `${key}=${params[key]}&`
-    }
-    signStr += `app_key=${TENCENT_APP_KEY}`
-    
-    // 计算MD5签名
-    const sign = (await md5Hash(signStr)).toUpperCase()
-    params.sign = sign
-
-    const response = await Promise.race([
-      axios.post(TENCENT_TRANSLATE_URL, new URLSearchParams(params)),
-      createTimeoutPromise(10000) // 10秒超时
-    ])
-    
-    if (response.data.ret === 0 && response.data.data) {
-      return response.data.data.target_text
-    } else {
-      throw new Error(`腾讯API错误: ${response.data.msg || '未知错误'}`)
-    }
-  } catch (error: any) {
-    console.error('腾讯翻译API调用失败:', error)
-    throw error
-  }
+  throw new Error('后端翻译返回空结果')
 }
 
 // 调用火山AI接口
@@ -130,34 +91,18 @@ const callVolcanoAPI = async (text: string): Promise<string> => {
   }
 
   try {
-    // 构建翻译提示
     const messages = [
-      {
-        role: 'system',
-        content: '你是一个专业的翻译助手，将用户提供的文本翻译成指定语言。只返回翻译结果，不要添加任何解释或其他内容。'
-      },
-      {
-        role: 'user',
-        content: `请将以下文本翻译成中文：\n\n${text}`
-      }
+      { role: 'system', content: '你是一个专业的翻译助手，将用户提供的文本翻译成指定语言。只返回翻译结果，不要添加任何解释或其他内容。' },
+      { role: 'user', content: `请将以下文本翻译成中文：\n\n${text}` }
     ]
 
     const response = await Promise.race([
       axios.post(
         VOLCANO_API_URL,
-        {
-          model: 'doubao-1-5-lite-32k-250115',
-          messages
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${VOLCANO_API_KEY}`
-          },
-          timeout: 30000
-        }
+        { model: 'doubao-1-5-lite-32k-250115', messages },
+        { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${VOLCANO_API_KEY}` }, timeout: 30000 }
       ),
-      createTimeoutPromise(30000) // 30秒超时
+      createTimeoutPromise(30000)
     ])
     
     return response.data.choices?.[0]?.message?.content || ''
@@ -182,18 +127,11 @@ const callBaiduTranslateAPI = async (text: string): Promise<string> => {
     const signStr = BAIDU_APP_ID + text + salt + BAIDU_SECRET_KEY
     const sign = await md5Hash(signStr)
 
-    const params = new URLSearchParams({
-      q: text,
-      from: 'auto',
-      to: 'zh',
-      appid: BAIDU_APP_ID,
-      salt: salt,
-      sign: sign
-    })
+    const params = new URLSearchParams({ q: text, from: 'auto', to: 'zh', appid: BAIDU_APP_ID, salt: salt, sign: sign })
 
     const response = await Promise.race([
       axios.post(BAIDU_TRANSLATE_URL, params),
-      createTimeoutPromise(10000) // 10秒超时
+      createTimeoutPromise(10000)
     ])
 
     if (response.data.trans_result && response.data.trans_result.length > 0) {
@@ -207,16 +145,16 @@ const callBaiduTranslateAPI = async (text: string): Promise<string> => {
   }
 }
 
-// 多级API调用策略
+// 多级API调用策略（先走后端，再火山，再百度）
 const callTranslateAPIWithFallback = async (text: string): Promise<string> => {
   const errors: string[] = []
   
-  // 第一级：腾讯翻译API
+  // 第一级：后端代理（避免跨域与密钥暴露）
   try {
-    return await callTencentTranslateAPI(text)
+    return await translateViaBackend(text)
   } catch (error: any) {
-    errors.push(`腾讯翻译: ${error.message}`)
-    console.warn('腾讯翻译API失败，尝试火山AI:', error.message)
+    errors.push(`后端代理: ${error.message}`)
+    console.warn('后端翻译失败，尝试火山AI:', error.message)
   }
   
   // 第二级：火山AI
@@ -235,27 +173,19 @@ const callTranslateAPIWithFallback = async (text: string): Promise<string> => {
     console.error('所有翻译API都失败了:', errors)
   }
   
-  // 所有API都失败
   throw new Error(`翻译服务暂时不可用: ${errors.join('; ')}`)
 }
 
 // 主要的翻译函数
 export const translateText = async (text: string): Promise<string> => {
-  if (!text || typeof text !== 'string') {
-    return ''
-  }
-
+  if (!text || typeof text !== 'string') return ''
   const trimmedText = text.trim()
-  if (!trimmedText) {
-    return ''
-  }
+  if (!trimmedText) return ''
 
-  // 检查缓存
   if (translationCache.has(trimmedText)) {
     return translationCache.get(trimmedText) || ''
   }
 
-  // 检查本地字典
   const localTranslation = getLocalTranslation(trimmedText)
   if (localTranslation) {
     translationCache.set(trimmedText, localTranslation)
@@ -263,17 +193,11 @@ export const translateText = async (text: string): Promise<string> => {
   }
 
   try {
-    // 使用多级API调用策略
     const translation = await callTranslateAPIWithFallback(trimmedText)
-    
-    // 缓存结果
     translationCache.set(trimmedText, translation)
-    
     return translation
   } catch (error: any) {
     console.error('翻译失败:', error)
-    
-    // 如果是网络错误或超时，返回更友好的错误信息
     if (error.message === '请求超时') {
       throw new Error('翻译请求超时，请稍后重试')
     } else if (error.code === 'NETWORK_ERROR') {
