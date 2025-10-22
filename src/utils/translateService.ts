@@ -70,7 +70,12 @@ const getEnvVar = (key: string): string => {
 // 通过后端代理翻译（优先）
 const translateViaBackend = async (text: string, sourceLanguage = 'en', targetLanguage = 'zh'): Promise<string> => {
   const resp = await Promise.race([
-    httpClient.post('/api/translate', { text, sourceLanguage, targetLanguage, useBaidu: true }),
+    httpClient.post('/api/translate', { 
+      text, 
+      sourceLanguage, 
+      targetLanguage, 
+      provider: 'tencent'  // 强制使用腾讯翻译，排除其他提供者干扰
+    }),
     createTimeoutPromise(20000)
   ])
   const data = resp?.data || {}
