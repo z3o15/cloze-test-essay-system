@@ -1,204 +1,142 @@
 import express from 'express';
 import cors from 'cors';
-import * as fs from 'fs';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
 
-// 获取当前文件和目录路径
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// 创建Express应用
 const app = express();
-const port = 3000;
+const PORT = 3000;
 
-// 配置CORS
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type']
-}));
-
-// 解析JSON请求体
+// 中间件
+app.use(cors());
 app.use(express.json());
 
-// 模拟EdgeOne环境变量
-const mockEnv = {
-  VOLCANO_API_KEY: process.env.VOLCANO_API_KEY || '',
-  VOLCANO_API_URL: 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-  BAIDU_APP_ID: process.env.BAIDU_APP_ID || '',
-  BAIDU_SECRET_KEY: process.env.BAIDU_SECRET_KEY || ''
-};
-
-// 模拟EdgeOne上下文对象
-function createEdgeContext(request, response) {
-  return {
-    request: {
-      method: request.method,
-      headers: request.headers,
-      json: async () => request.body,
-      url: request.url
-    },
-    env: mockEnv,
-    next: async () => {},
-    response: {
-      status: (statusCode) => {
-        response.status(statusCode);
-        return {
-          json: (data) => {
-            response.json(data);
-            return { ok: true };
-          },
-          headers: (headers) => {
-            Object.entries(headers).forEach(([key, value]) => {
-              response.setHeader(key, value);
-            });
-            return { json: (data) => { response.json(data); return { ok: true }; } };
-          }
-        };
-      },
-      headers: (headers) => {
-        Object.entries(headers).forEach(([key, value]) => {
-          response.setHeader(key, value);
-        });
-        return {
-          status: (statusCode) => {
-            response.status(statusCode);
-            return { json: (data) => { response.json(data); return { ok: true }; } };
-          }
-        };
-      }
-    }
-  };
-}
-
-// 加载Edge Functions
-let translateFunction;
-let wordQueryFunction;
-
-try {
-  // 动态导入translate函数
-  const translateModulePath = path.resolve(__dirname, 'edge-functions/translate.ts');
-  if (fs.existsSync(translateModulePath)) {
-    console.log('加载translate函数...');
-    // 注意：在实际环境中，您可能需要使用ts-node或其他方式来直接运行TypeScript
-    // 这里我们使用一个简单的模拟实现
-    translateFunction = async (context) => {
-      const requestBody = await context.request.json();
-      console.log('翻译请求:', requestBody);
-      
-      // 模拟翻译响应
-      const response = {
-        translatedText: `[模拟翻译] ${requestBody.text}`,
-        from: requestBody.from || 'en',
-        to: requestBody.to || 'zh',
-        provider: 'mock',
-        fromCache: false
-      };
-      
-      return context.response
-        .status(200)
-        .headers({
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json'
-        })
-        .json(response);
-    };
+// 模拟翻译API
+app.post('/api/translate', (req, res) => {
+  const { text, source = 'en', target = 'zh' } = req.body;
+  
+  console.log(`翻译请求: "${text}" (${source} -> ${target})`);
+  
+  if (!text) {
+    return res.status(400).json({ error: '文本内容不能为空' });
   }
   
-  // 动态导入word-query函数
-  const wordQueryModulePath = path.resolve(__dirname, 'edge-functions/word-query.ts');
-  if (fs.existsSync(wordQueryModulePath)) {
-    console.log('加载word-query函数...');
-    // 同样，使用模拟实现
-    wordQueryFunction = async (context) => {
-      const requestBody = await context.request.json();
-      console.log('单词查询请求:', requestBody);
-      
-      // 模拟单词查询响应
-      const response = {
-        phonetic: `/fəˈnetɪk/`,
-        definitions: [`${requestBody.word}的模拟释义`, `这是第二个模拟释义`],
-        examples: [`这是包含"${requestBody.word}"的模拟例句。`],
-        provider: 'mock',
-        fromCache: false
-      };
-      
-      return context.response
-        .status(200)
-        .headers({
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json'
-        })
-        .json(response);
+  // 模拟翻译延迟
+  setTimeout(() => {
+    // 简单的模拟翻译
+    const mockTranslations = {
+      'hello': '你好',
+      'world': '世界',
+      'good morning': '早上好',
+      'thank you': '谢谢你',
+      'how are you': '你好吗',
+      'I am fine': '我很好',
+      'nice to meet you': '很高兴见到你',
+      'goodbye': '再见',
+      'see you later': '回头见',
+      'have a good day': '祝你有美好的一天'
     };
-  }
-} catch (error) {
-  console.error('加载Edge Functions失败:', error);
-}
-
-// 路由：翻译接口
-app.post('/api/translate', async (req, res) => {
-  try {
-    const context = createEdgeContext(req, res);
-    if (translateFunction) {
-      await translateFunction(context);
-    } else {
-      res.status(200).json({
-        translatedText: `[模拟翻译] ${req.body.text}`,
-        from: req.body.from || 'en',
-        to: req.body.to || 'zh',
-        provider: 'mock-server',
-        fromCache: false
-      });
+    
+    // 检查是否有预设翻译
+    const lowerText = text.toLowerCase().trim();
+    let translation = mockTranslations[lowerText];
+    
+    if (!translation) {
+      // 如果没有预设翻译，生成一个模拟翻译
+      translation = `[模拟翻译] ${text}`;
     }
-  } catch (error) {
-    console.error('翻译接口错误:', error);
-    res.status(500).json({ error: error.message });
+    
+    res.json({
+      translation: translation,
+      sourceLanguage: source,
+      targetLanguage: target,
+      provider: 'mock',
+      fromCache: false
+    });
+  }, 500); // 模拟500ms延迟
+});
+
+// 模拟单词查询API
+app.get('/api/word-query', (req, res) => {
+  const { word } = req.query;
+  
+  console.log(`单词查询请求: "${word}"`);
+  
+  if (!word) {
+    return res.status(400).json({ error: '单词参数不能为空' });
+  }
+  
+  // 模拟单词词典
+  const mockDictionary = {
+    'hello': {
+      phonetic: '/həˈloʊ/',
+      definitions: ['你好', '问候语']
+    },
+    'world': {
+      phonetic: '/wɜːrld/',
+      definitions: ['世界', '地球']
+    },
+    'competitive': {
+      phonetic: '/kəmˈpetətɪv/',
+      definitions: ['竞争的', '有竞争力的']
+    },
+    'competition': {
+      phonetic: '/ˌkɑːmpəˈtɪʃn/',
+      definitions: ['竞争', '比赛']
+    },
+    'opportunity': {
+      phonetic: '/ˌɑːpərˈtuːnəti/',
+      definitions: ['机会', '时机']
+    },
+    'survival': {
+      phonetic: '/sərˈvaɪvl/',
+      definitions: ['生存', '幸存']
+    },
+    'successful': {
+      phonetic: '/səkˈsesfl/',
+      definitions: ['成功的', '有成就的']
+    },
+    'challenging': {
+      phonetic: '/ˈtʃælɪndʒɪŋ/',
+      definitions: ['具有挑战性的', '困难的']
+    },
+    'society': {
+      phonetic: '/səˈsaɪəti/',
+      definitions: ['社会', '社团']
+    },
+    'fragmented': {
+      phonetic: '/ˈfræɡmentɪd/',
+      definitions: ['碎片化的', '分散的']
+    },
+    'interactive': {
+      phonetic: '/ˌɪntərˈæktɪv/',
+      definitions: ['互动的', '交互式的']
+    },
+    'traditional': {
+      phonetic: '/trəˈdɪʃənl/',
+      definitions: ['传统的', '惯例的']
+    }
+  };
+  
+  const lowerWord = word.toLowerCase().trim();
+  const wordInfo = mockDictionary[lowerWord];
+  
+  if (wordInfo) {
+    res.json(wordInfo);
+  } else {
+    // 如果没有预设词汇，返回一个模拟的翻译
+    res.json({
+      phonetic: `/${lowerWord}/`,
+      definitions: [`[模拟翻译] ${word}`]
+    });
   }
 });
 
-// 路由：单词查询接口
-app.post('/api/word-query', async (req, res) => {
-  try {
-    const context = createEdgeContext(req, res);
-    if (wordQueryFunction) {
-      await wordQueryFunction(context);
-    } else {
-      res.status(200).json({
-        phonetic: `/fəˈnetɪk/`,
-        definitions: [`${req.body.word}的模拟释义`, `这是第二个模拟释义`],
-        examples: [`这是包含"${req.body.word}"的模拟例句。`],
-        provider: 'mock-server',
-        fromCache: false
-      });
-    }
-  } catch (error) {
-    console.error('单词查询接口错误:', error);
-    res.status(500).json({ error: error.message });
-  }
+// 健康检查端点
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', message: '翻译服务正常运行' });
 });
 
-// 路由：测试根路径
-app.get('/', (req, res) => {
-  res.json({
-    message: 'EdgeOne Pages API 测试服务器',
-    availableEndpoints: [
-      { path: '/api/translate', method: 'POST', description: '翻译接口' },
-      { path: '/api/word-query', method: 'POST', description: '单词查询接口' }
-    ],
-    testExamples: {
-      translate: 'curl -X POST -H "Content-Type: application/json" -d "{\"text\":\"I love apples\",\"from\":\"en\",\"to\":\"zh\"}" http://localhost:3000/api/translate',
-      wordQuery: 'curl -X POST -H "Content-Type: application/json" -d "{\"word\":\"apple\",\"from\":\"en\",\"to\":\"zh\"}" http://localhost:3000/api/word-query'
-    }
-  });
-});
-
-// 启动服务器
-app.listen(port, () => {
-  console.log(`测试服务器运行在 http://localhost:${port}`);
-  console.log('可用接口:');
-  console.log('  - POST http://localhost:3000/api/translate');
-  console.log('  - POST http://localhost:3000/api/word-query');
-  console.log('访问 http://localhost:3000 获取测试示例');
+app.listen(PORT, () => {
+  console.log(`测试服务器运行在 http://localhost:${PORT}`);
+  console.log('翻译API端点: POST /api/translate');
+  console.log('单词查询端点: GET /api/word-query');
+  console.log('健康检查端点: GET /api/health');
 });

@@ -6,27 +6,38 @@
   },
   "rewrites": [
     {
+      "source": "/assets/(.*)",
+      "target": "/assets/$1"
+    },
+    {
+      "source": "/api/(.*)",
+      "target": "/api/$1"
+    },
+    {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "target": "/index.html"
     }
   ],
   "headers": [
     {
-      "source": "/(.*)",
+      "source": "/*",
       "headers": [
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET, POST, OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type"
-        }
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
       ]
+    },
+    {
+      "source": "/assets/*.js",
+      "headers": [{ "key": "Content-Type", "value": "application/javascript; charset=utf-8" }]
+    },
+    {
+      "source": "/assets/*.css",
+      "headers": [{ "key": "Content-Type", "value": "text/css; charset=utf-8" }]
+    },
+    {
+      "source": "/assets/*.svg",
+      "headers": [{ "key": "Content-Type", "value": "image/svg+xml" }]
     }
   ],
   "functions": {
@@ -35,18 +46,10 @@
       "glob": "edge-functions/**/*.ts"
     },
     "routes": [
-      {
-        "path": "/api/translate",
-        "function": "edge-functions/translate.ts"
-      },
-      {
-        "path": "/api/word-query",
-        "function": "edge-functions/word-query.ts"
-      },
-      {
-        "path": "/api/visit-count",
-        "function": "edge-functions/visit-counter.ts"
-      }
+      { "path": "/translate", "function": "edge-functions/translate.ts" },
+      { "path": "/api/translate", "function": "edge-functions/api/translate.ts" },
+      { "path": "/api/word-query", "function": "edge-functions/word-query.ts" },
+      { "path": "/api/visit-count", "function": "edge-functions/visit-counter.ts" }
     ]
   },
   "environment": {

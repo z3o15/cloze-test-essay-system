@@ -1,5 +1,18 @@
 <template>
   <div class="record-container">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <div class="header-content">
+        <div class="header-text">
+          <h1 class="page-title">录入作文</h1>
+          <p class="page-subtitle">Record Essay</p>
+        </div>
+        <div class="header-actions">
+          <ThemeToggle />
+        </div>
+      </div>
+    </div>
+    
     <!-- 年份选择 -->
     <div class="form-group">
       <div class="field-label">年份</div>
@@ -65,6 +78,7 @@ import { reactive } from 'vue'
 import { useRouter } from 'vue-router'
 // 移除未使用的导入
 import { useStore } from '../store'
+import ThemeToggle from '../components/ui/ThemeToggle.vue'
 
 interface FormData {
   year: string
@@ -114,8 +128,6 @@ const handlePaste = (event: ClipboardEvent) => {
 
 // 提交表单
 const submitForm = () => {
-  console.log('提交表单数据:', formData)
-  
   // 验证表单
   if (!formData.title.trim() || !formData.content.trim()) {
     alert('请填写标题和内容')
@@ -131,34 +143,25 @@ const submitForm = () => {
       content: formData.content
     }
     
-    console.log('准备添加到store的作文数据:', essayToAdd)
-    
     // 调用store的addEssay方法
     store.addEssay(essayToAdd)
     
     // 不需要额外调用loadEssays()，因为addEssay方法已经更新了store状态并保存到localStorage
     
-    console.log('添加作文后store中的数量:', store.essays.length)
-    
     // 获取刚刚添加的作文（应该是数组中的第一个元素）
     if (store.essays && store.essays.length > 0) {
       const addedEssay = store.essays[0]
       if (addedEssay && addedEssay.id) {
-        console.log('成功添加作文，ID:', addedEssay.id)
-        
         // 使用store中返回的实际ID跳转
         router.push(`/display/${addedEssay.id}`)
       } else {
-        console.error('添加的作文数据不完整')
         alert('作文添加成功但数据不完整，请刷新页面后查看')
       }
     } else {
-      console.error('添加作文后store中找不到数据')
       alert('作文添加成功但无法获取ID，请刷新页面后查看')
     }
     
   } catch (error) {
-    console.error('提交过程中出现错误:', error)
     // 处理重复内容错误
     if (error instanceof Error && error.message.includes('作文内容重复')) {
       alert('提交失败：作文内容重复，请检查是否已添加过相同内容的作文')
@@ -170,6 +173,49 @@ const submitForm = () => {
 </script>
 
 <style scoped>
+/* 页面头部样式 */
+.page-header {
+  background: linear-gradient(135deg, var(--color-primary-600) 0%, var(--color-primary) 100%);
+  padding: 24px 20px;
+  margin: -32px -24px 32px -24px;
+  border-radius: 0 0 22px 22px;
+}
+
+.header-content {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+
+.header-text {
+  flex: 1;
+}
+
+.header-actions {
+  flex-shrink: 0;
+}
+
+.page-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: white;
+  margin: 0 0 4px 0;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+}
+
+.page-subtitle {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
 /* 容器样式 - Apple风格 */
 .record-container {
   position: relative;
@@ -201,7 +247,7 @@ const submitForm = () => {
 .year-select {
   width: 100%;
   height: 48px;
-  background-color: rgba(255, 255, 255, 0.7);
+  background-color: var(--color-bg-elevated);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   padding: 0 var(--spacing-lg);
@@ -220,8 +266,8 @@ const submitForm = () => {
 
 .year-select:focus {
   outline: none;
-  border-color: #007AFF;
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-bg);
 }
 
 .year-select::-ms-expand {
@@ -247,14 +293,14 @@ const submitForm = () => {
 }
 
 .type-btn-primary {
-  background-color: #007AFF;
+  background-color: var(--color-primary);
   color: white;
-  border-color: #007AFF;
+  border-color: var(--color-primary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .type-btn-secondary {
-  background-color: rgba(255, 255, 255, 0.7);
+  background-color: var(--color-bg-elevated);
   color: var(--color-text-secondary);
   border: 1px solid var(--color-border);
 }
@@ -273,7 +319,7 @@ const submitForm = () => {
 .title-input {
   width: 100%;
   height: 48px;
-  background-color: rgba(255, 255, 255, 0.7);
+  background-color: var(--color-bg-elevated);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   padding: 0 var(--spacing-lg);
@@ -290,15 +336,15 @@ const submitForm = () => {
 
 .title-input:focus {
   outline: none;
-  border-color: #007AFF;
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-bg);
 }
 
 /* 内容文本框 */
 .content-textarea {
   width: 100%;
   height: 320px;
-  background-color: rgba(255, 255, 255, 0.7);
+  background-color: var(--color-bg-elevated);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   padding: var(--spacing-lg);
@@ -317,8 +363,8 @@ const submitForm = () => {
 
 .content-textarea:focus {
   outline: none;
-  border-color: #007AFF;
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-bg);
 }
 
 /* 文本框容器 */
@@ -362,14 +408,14 @@ const submitForm = () => {
 }
 
 .btn-confirm {
-  background-color: #007AFF;
+  background-color: var(--color-primary);
   color: white;
-  border-color: #007AFF;
+  border-color: var(--color-primary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .btn-confirm:hover {
-  background-color: #0062CC;
+  background-color: var(--color-primary-600);
   transform: translateY(-1px);
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
 }
