@@ -1,6 +1,19 @@
 import axios from 'axios';
-import crypto from 'crypto';
-import { kv } from '@vercel/kv';
+
+// 声明KV存储（EdgeOne兼容）
+declare const kv: {
+  get<T>(key: string): Promise<T | null>;
+  set(key: string, value: string, options?: { ex?: number }): Promise<void>;
+};
+
+// Web Crypto API 辅助函数
+async function md5Hash(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest('MD5', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 // EdgeOne Pages兼容的请求和响应类型
 interface Request {
@@ -35,7 +48,7 @@ async function callBaiduTranslateAPI(text: string, from: string, to: string) {
     // 生成随机数
     const salt = Math.floor(Math.random() * 1000000000).toString();
     // 构建签名
-    const sign = crypto.createHash('md5').update(`${BAIDU_APP_ID}${text}${salt}${BAIDU_SECRET_KEY}`).digest('hex');
+    const sign = await md5Hash(`${BAIDU_APP_ID}${text}${salt}${BAIDU_SECRET_KEY}`);
     
     // 构建请求参数
     const params = {
@@ -48,13 +61,30 @@ async function callBaiduTranslateAPI(text: string, from: string, to: string) {
     };
     
     // 发送请求
-    const response = await axios.get(BAIDU_TRANSLATE_URL, { params });
+    const response = await axios.get(BAIDU_TRANSLATE_URL, { 
+      params,
+      timeout: 5000
+    });
+    
+    console.log(`百度翻译API响应状态: ${response.status}`);
+    console.log(`百度翻译API响应数据:`, JSON.stringify(response.data, null, 2));
+    
+    // 检查API错误
+    if (response.data && response.data.error_code) {
+      console.log(`百度翻译API错误: ${response.data.error_code} - ${response.data.error_msg}`);
+      if (response.data.error_code === '54003') {
+        console.log('API调用频率超限，抛出错误以触发回退');
+      }
+      throw new Error(`百度翻译API错误: ${response.data.error_code} - ${response.data.error_msg}`);
+    }
     
     // 检查响应
     if (response.data && response.data.trans_result && response.data.trans_result.length > 0) {
       const translatedText = response.data.trans_result.map((item: any) => item.dst).join('\n');
+      console.log(`翻译成功: "${text}" -> "${translatedText}"`);
       return translatedText;
     } else {
+      console.log(`翻译响应格式异常:`, response.data);
       throw new Error('百度翻译API响应格式错误');
     }
   } catch (error) {
@@ -108,8 +138,9 @@ async function callVolcanoAPI(text: string, targetLanguage: string, sourceLangua
 }
 
 // 生成缓存键
-function generateCacheKey(text: string, sourceLanguage: string, targetLanguage: string): string {
-  return `translation:${sourceLanguage}:${targetLanguage}:${crypto.createHash('md5').update(text).digest('hex')}`;
+async function generateCacheKey(text: string, sourceLanguage: string, targetLanguage: string): Promise<string> {
+  const hash = await md5Hash(text);
+  return `translation:${sourceLanguage}:${targetLanguage}:${hash}`;
 }
 
 // 从缓存获取翻译结果
@@ -119,7 +150,7 @@ async function getTranslationFromCache(
   targetLanguage: string
 ): Promise<{ translation: string; provider: string } | null> {
   try {
-    const cacheKey = generateCacheKey(text, sourceLanguage, targetLanguage);
+    const cacheKey = await generateCacheKey(text, sourceLanguage, targetLanguage);
     const cachedData = await kv.get<string>(cacheKey);
     
     if (cachedData) {
@@ -142,7 +173,7 @@ async function cacheTranslationResult(
   provider: string
 ): Promise<void> {
   try {
-    const cacheKey = generateCacheKey(text, sourceLanguage, targetLanguage);
+    const cacheKey = await generateCacheKey(text, sourceLanguage, targetLanguage);
     const cacheData = JSON.stringify({
       translation,
       provider,
