@@ -364,8 +364,49 @@ async function cacheTranslationResult(
 }
 
 // EdgeOne Pages 入口函数 - 处理所有请求
-export default async function onRequest(context: any) {
-  const { request } = context;
+export default async function handler(request: Request): Promise<Response> {
+  console.log('=== 翻译API调用开始 ===');
+  console.log('请求方法:', request.method);
+  console.log('请求URL:', request.url);
+  console.log('运行环境:', typeof process !== 'undefined' ? 'EdgeOne' : 'Unknown');
+  
+  // EdgeOne环境变量详细检查
+  console.log('EdgeOne环境变量检查:');
+  const allEnvVars = {
+    TENCENT_APP_ID: process.env.TENCENT_APP_ID,
+    TENCENT_APP_KEY: process.env.TENCENT_APP_KEY,
+    TENCENT_KEY: process.env.TENCENT_KEY,
+    TENCENT_API_URL: process.env.TENCENT_API_URL,
+    VITE_TENCENT_APP_ID: process.env.VITE_TENCENT_APP_ID,
+    VITE_TENCENT_KEY: process.env.VITE_TENCENT_KEY,
+    VITE_TENCENT_APP_KEY: process.env.VITE_TENCENT_APP_KEY,
+    VITE_TENCENT_API_URL: process.env.VITE_TENCENT_API_URL,
+    BAIDU_APP_ID: process.env.BAIDU_APP_ID,
+    BAIDU_SECRET_KEY: process.env.BAIDU_SECRET_KEY,
+    VOLCANO_API_KEY: process.env.VOLCANO_API_KEY,
+    VOLCANO_API_URL: process.env.VOLCANO_API_URL
+  };
+  
+  console.log('所有环境变量状态:');
+  Object.entries(allEnvVars).forEach(([key, value]) => {
+    console.log(`- ${key}: ${value ? `${value.substring(0, 4)}***` : 'undefined'}`);
+  });
+  
+  // 环境变量检查
+  console.log('最终使用的配置:');
+  console.log('- 腾讯翻译:', {
+    appId: TENCENT_APP_ID ? `${TENCENT_APP_ID.substring(0, 4)}***` : 'undefined',
+    appKey: TENCENT_APP_KEY ? `${TENCENT_APP_KEY.substring(0, 4)}***` : 'undefined',
+    apiUrl: TENCENT_TRANSLATE_URL
+  });
+  console.log('- 百度翻译:', {
+    appId: BAIDU_APP_ID ? `${BAIDU_APP_ID.substring(0, 4)}***` : 'undefined',
+    secretKey: BAIDU_SECRET_KEY ? `${BAIDU_SECRET_KEY.substring(0, 4)}***` : 'undefined'
+  });
+  console.log('- 火山翻译:', {
+    apiKey: VOLCANO_API_KEY ? `${VOLCANO_API_KEY.substring(0, 4)}***` : 'undefined',
+    apiUrl: VOLCANO_API_URL
+  });
   
   // 设置CORS头
   const corsHeaders = {
@@ -392,13 +433,18 @@ export default async function onRequest(context: any) {
   }
   
   try {
-    // 添加环境变量调试信息
-    console.log('环境变量检查:', {
+    // 最终使用的配置检查
+    console.log('最终使用的配置:', {
       hasTencent: !!(TENCENT_APP_ID && TENCENT_APP_KEY),
       hasBaidu: !!(BAIDU_APP_ID && BAIDU_SECRET_KEY),
       hasVolcano: !!VOLCANO_API_KEY,
       tencentAppId: TENCENT_APP_ID ? `${TENCENT_APP_ID.substring(0, 4)}***` : 'undefined',
-      tencentKey: TENCENT_APP_KEY ? `${TENCENT_APP_KEY.substring(0, 4)}***` : 'undefined'
+      tencentKey: TENCENT_APP_KEY ? `${TENCENT_APP_KEY.substring(0, 4)}***` : 'undefined',
+      tencentApiUrl: TENCENT_TRANSLATE_URL,
+      baiduAppId: BAIDU_APP_ID ? `${BAIDU_APP_ID.substring(0, 4)}***` : 'undefined',
+      baiduSecret: BAIDU_SECRET_KEY ? `${BAIDU_SECRET_KEY.substring(0, 4)}***` : 'undefined',
+      volcanoKey: VOLCANO_API_KEY ? `${VOLCANO_API_KEY.substring(0, 4)}***` : 'undefined',
+      volcanoUrl: VOLCANO_API_URL
     });
 
     // 获取请求体数据
@@ -564,4 +610,43 @@ export default async function onRequest(context: any) {
       headers: corsHeaders
     });
   }
+}
+
+// EdgeOne Pages 入口函数 - 处理所有请求
+export async function onRequest(context: any) {
+  const { request } = context;
+  
+  console.log('=== EdgeOne翻译API调用开始 ===');
+  console.log('请求方法:', request.method);
+  console.log('请求URL:', request.url);
+  console.log('运行环境: EdgeOne Pages');
+  
+  // EdgeOne环境变量详细检查
+  console.log('EdgeOne环境变量检查:');
+  const allEnvVars = {
+    TENCENT_APP_ID: context.env.TENCENT_APP_ID,
+    TENCENT_APP_KEY: context.env.TENCENT_APP_KEY,
+    TENCENT_KEY: context.env.TENCENT_KEY,
+    TENCENT_API_URL: context.env.TENCENT_API_URL,
+    VITE_TENCENT_APP_ID: context.env.VITE_TENCENT_APP_ID,
+    VITE_TENCENT_KEY: context.env.VITE_TENCENT_KEY,
+    VITE_TENCENT_APP_KEY: context.env.VITE_TENCENT_APP_KEY,
+    VITE_TENCENT_API_URL: context.env.VITE_TENCENT_API_URL,
+    BAIDU_APP_ID: context.env.BAIDU_APP_ID,
+    BAIDU_SECRET_KEY: context.env.BAIDU_SECRET_KEY,
+    VOLCANO_API_KEY: context.env.VOLCANO_API_KEY,
+    VOLCANO_API_URL: context.env.VOLCANO_API_URL
+  };
+  
+  console.log('所有环境变量状态:');
+  Object.entries(allEnvVars).forEach(([key, value]) => {
+    console.log(`- ${key}: ${value ? `${value.substring(0, 4)}***` : 'undefined'}`);
+  });
+  
+  // 临时设置process.env以兼容现有代码
+  if (typeof process !== 'undefined' && process.env) {
+    Object.assign(process.env, allEnvVars);
+  }
+  
+  return handler(request);
 }
