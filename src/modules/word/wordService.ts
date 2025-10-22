@@ -1,4 +1,4 @@
-import { queryWord as apiQueryWord } from '../../utils/api'
+import httpClient from '../../utils/httpClient'
 // 本地WordInfo类型，不包含examples属性
 interface WordInfo {
   phonetic: string
@@ -77,13 +77,18 @@ export const queryWord = async (word: string, options?: QueryWordOptions | boole
   console.log(`查询单词: ${normalizedWord}${forceRefresh ? ' (强制刷新)' : ''}`)
 
   try {
-    // 调用API时传递forceRefresh参数给底层apiQueryWord
-    const rawWordInfo = await apiQueryWord(normalizedWord, forceRefresh)
+    // 直接调用API端点
+    const response = await httpClient.get(`/api/word-query?word=${encodeURIComponent(normalizedWord)}`)
+    
+    // 检查响应数据
+    if (!response.data || !response.data.phonetic || !Array.isArray(response.data.definitions)) {
+      throw new Error('Invalid API response format')
+    }
     
     // 只保留需要的字段，过滤掉examples
     const wordInfo: WordInfo = {
-      phonetic: rawWordInfo.phonetic || '',
-      definitions: rawWordInfo.definitions || [],
+      phonetic: response.data.phonetic || '',
+      definitions: response.data.definitions || [],
       level: determineWordLevel(word) // 添加难度级别
     }
     
