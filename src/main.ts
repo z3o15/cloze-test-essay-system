@@ -64,8 +64,9 @@ window.addEventListener('unhandledrejection', (event) => {
 const app = createApp(App)
 
 // Vue应用级错误处理
-app.config.errorHandler = (err, instance, info) => {
-  const message = err?.message || err?.toString() || ''
+app.config.errorHandler = (err: unknown, _instance: unknown, _info: string) => {
+  const error = err as Error
+  const message = error?.message || error?.toString() || ''
   
   // 检查是否是浏览器扩展相关的错误
   const isExtensionError = 
@@ -75,11 +76,11 @@ app.config.errorHandler = (err, instance, info) => {
     message.includes('moz-extension://') ||
     message.includes('safari-extension://') ||
     message.includes('ms-browser-extension://') ||
-    (err && err.stack && (
-      err.stack.includes('chrome-extension://') ||
-      err.stack.includes('moz-extension://') ||
-      err.stack.includes('safari-extension://') ||
-      err.stack.includes('ms-browser-extension://')
+    (error && error.stack && (
+      error.stack.includes('chrome-extension://') ||
+      error.stack.includes('moz-extension://') ||
+      error.stack.includes('safari-extension://') ||
+      error.stack.includes('ms-browser-extension://')
     ))
   
   if (isExtensionError) {
@@ -88,7 +89,7 @@ app.config.errorHandler = (err, instance, info) => {
   }
   
   // 对于非扩展错误，正常处理
-  console.error('Vue应用错误:', err, info)
+  console.error('Vue应用错误:', error, _info)
 }
 
 app.use(router)
