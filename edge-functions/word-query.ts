@@ -32,39 +32,57 @@ const BAIDU_TRANSLATE_URL = 'https://fanyi-api.baidu.com/api/trans/vip/translate
 const localDictionary: Record<string, WordInfo> = {
   'the': {
     phonetic: '/ðə/',
-    definitions: ['定冠词', '这，那']
+    definitions: ['定冠词', '这，那'],
+    examples: ['The book is on the table.', 'The sun is shining.'],
+    source: 'local'
   },
   'and': {
     phonetic: '/ænd/',
-    definitions: ['和，与', '并且']
+    definitions: ['和，与', '并且'],
+    examples: ['Tom and Jerry', 'I like apples and oranges.'],
+    source: 'local'
   },
   'is': {
     phonetic: '/ɪz/',
-    definitions: ['是（be的第三人称单数现在时）']
+    definitions: ['是（be的第三人称单数现在时）'],
+    examples: ['He is a teacher.', 'The weather is nice.'],
+    source: 'local'
   },
   'in': {
     phonetic: '/ɪn/',
-    definitions: ['在...里面', '在...期间']
+    definitions: ['在...里面', '在...期间'],
+    examples: ['The cat is in the box.', 'In summer, it\'s hot.'],
+    source: 'local'
   },
   'to': {
     phonetic: '/tuː/',
-    definitions: ['到，向', '为了']
+    definitions: ['到，向', '为了'],
+    examples: ['Go to school.', 'I want to learn.'],
+    source: 'local'
   },
   'of': {
     phonetic: '/əv/',
-    definitions: ['...的', '属于']
+    definitions: ['...的', '属于'],
+    examples: ['The color of the sky.', 'A cup of tea.'],
+    source: 'local'
   },
   'a': {
     phonetic: '/ə/',
-    definitions: ['一（个）', '不定冠词']
+    definitions: ['一（个）', '不定冠词'],
+    examples: ['A book', 'A beautiful day'],
+    source: 'local'
   },
   'waste': {
     phonetic: '/weɪst/',
-    definitions: ['废物，垃圾', '浪费', '废弃的']
+    definitions: ['废物，垃圾', '浪费', '废弃的'],
+    examples: ['Don\'t waste time.', 'Waste separation is important.'],
+    source: 'local'
   },
   'separation': {
     phonetic: '/ˌsepəˈreɪʃn/',
-    definitions: ['分离，分开', '间隔']
+    definitions: ['分离，分开', '间隔'],
+    examples: ['The separation of powers.', 'Waste separation helps recycling.'],
+    source: 'local'
   }
 };
 

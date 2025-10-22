@@ -88,7 +88,7 @@ export const queryWord = async (word: string, options?: QueryWordOptions | boole
     const apiData = response.data.data
     
     // 检查API数据格式
-    if (!apiData.phonetic || !Array.isArray(apiData.definitions)) {
+    if (!Array.isArray(apiData.definitions) || apiData.definitions.length === 0) {
       throw new Error('API数据格式无效')
     }
     
