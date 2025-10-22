@@ -6,15 +6,19 @@
   },
   "rewrites": [
     {
-      "source": "/assets/*",
+      "source": "/assets/(.*)",
       "destination": "/assets/$1"
     },
     {
-      "source": "/api/*",
+      "source": "/api/(.*)",
       "destination": "/api/$1"
     },
     {
-      "source": "/*",
+      "source": "/vite.svg",
+      "destination": "/vite.svg"
+    },
+    {
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ],
