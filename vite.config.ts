@@ -7,14 +7,20 @@ import { resolve } from 'path'
 dns.setDefaultResultOrder('verbatim')
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [vue()],
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src')
-    }
-  },
-  base: './',
+export default defineConfig(({ mode }) => {
+  // 根据环境设置 base 路径
+  const base = mode === 'production' 
+    ? '/cloze-test-essay-system/' // GitHub Pages 仓库名
+    : './'
+
+  return {
+    plugins: [vue()],
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, 'src')
+      }
+    },
+    base,
   server: {
     host: '127.0.0.1',
     port: 5173,
@@ -48,5 +54,6 @@ export default defineConfig({
         assetFileNames: `assets/[name].[ext]`
       }
     }
+  }
   }
 })
