@@ -1,11 +1,14 @@
 <template>
   <div class="article-container">
     <!-- 页面头部 -->
-    <EssayHeader @back="router.push('/manage')">
+    <UnifiedHeader 
+      type="detail"
+      @back="router.push('/manage')"
+    >
       <template #actions>
         <ThemeToggle />
       </template>
-    </EssayHeader>
+    </UnifiedHeader>
 
     <!-- 加载状态 -->
     <div v-if="loading" class="loading-state">
@@ -34,7 +37,9 @@
         </div>
       </div>
 
-      <!-- 翻译按钮已移除，选中后自动翻译 -->
+
+
+
       
       <!-- 文章正文 -->
       <div class="article-text" @click="handleWordClick">
@@ -46,8 +51,7 @@
               <span v-if="token.type === 'word'" 
                     class="token word-token" 
                     :data-word="token.text"
-                    @click.stop="handleWordClick(token.text, $event)"
-                    @mouseenter="lazyLoadWordTranslation(token.text)">
+                    @click.stop="handleWordClick(token.text, $event)">
                 <!-- 将单词和翻译包裹在一个inline-block容器中 -->
                 <div class="word-with-translation">
                   <span class="word-text">{{ token.text }}</span>
@@ -67,7 +71,7 @@
           <ParagraphTranslation 
             v-if="paragraphInfos[idx]"
             :translation="paragraphInfos[idx].translation"
-            :is-translating="paragraphInfos[idx].isTranslating"
+            :is-translating="false"
           />
         </div>
       </div>
@@ -86,6 +90,7 @@
       :show="showPopup"
       :word="currentWord"
       :word-info="wordInfo"
+      :difficulty-level="currentWordDifficultyLevel"
       :is-refreshing="isRefreshing"
       @close="closePopup"
       @retranslate="reTranslateWord"
@@ -99,12 +104,17 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useStore } from '../store'
-import { tokenizeText, queryWord, isAdvancedWord } from '../utils/api'
-import { translateText } from '../utils/api'
+import { queryWord } from '../utils/api'
+import { translateText, tokenizeText, processEssayAfterSave } from '../utils/translation'
+import { enhancedTranslate } from '../utils/enhancedTranslationService'
+import { OptimizedTranslationService } from '../services/optimizedTranslationService'
+import { WordDifficultyService } from '../services/wordDifficultyService'
+// 移除：段落-单词映射服务
+// import { saveParagraphMapping } from '../utils/paragraphWordMappingService'
 import ThemeToggle from '../components/ui/ThemeToggle.vue'
 import WordPopup from '../components/common/WordPopup.vue'
 import ParagraphTranslation from '../components/common/ParagraphTranslation.vue'
-import EssayHeader from '../components/essay/EssayHeader.vue'
+import UnifiedHeader from '../components/common/UnifiedHeader.vue'
 // 定义本地WordInfo类型，不包含examples属性
 interface WordInfo {
   phonetic: string
@@ -115,7 +125,6 @@ interface WordInfo {
 interface ParagraphInfo {
   text: string
   translation: string
-  isTranslating: boolean
   keyWords: Array<{
     word: string
     info: WordInfo
@@ -129,6 +138,14 @@ const router = useRouter()
 const route = useRoute()
 const id = computed(() => route.params.id as string)
 const store = useStore()
+
+// 当前单词的难度级别 - 只显示数据库中存在且难度≥2的单词
+const currentWordDifficultyLevel = computed(() => {
+  if (!currentWord.value) return 0
+  const key = currentWord.value.toLowerCase()
+  const dbWord = databaseDifficultWords.value[key]
+  return dbWord ? dbWord.difficulty_level : 0
+})
 
 // 数据状态
 const essayTitle = ref('')
@@ -149,45 +166,220 @@ const selectedText = ref('')
 const loading = ref(true)
 const error = ref<string | null>(null)
 const isRefreshing = ref(false) // 新增：刷新按钮加载状态
+const isParagraphTranslationComplete = ref(false) // 段落翻译是否完成
 
 // 用于存储每个单词的翻译
 const wordTranslations = ref<{ [key: string]: string }>({})
 
-// 用于跟踪正在进行中的翻译请求，避免重复请求
-const pendingTranslations = new Map<string, Promise<string>>()
+// 用于存储每个单词的难度信息（布尔值：是否复杂）
+const wordDifficultyCache = ref<{ [key: string]: boolean }>({})
 
-// 获取单词翻译，只返回已缓存的翻译
+// 用于存储每个单词的具体难度级别（1-10）
+const wordDifficultyLevels = ref<{ [key: string]: number }>({})
+
+// 用于存储数据库中难度级别≥2的单词
+const databaseDifficultWords = ref<{ [key: string]: any }>({})
+
+
+
+// 引入新的增强翻译服务
+import EnhancedTranslationService from '../services/enhancedTranslationService'
+
+const complexWordsCache = ref<Set<string>>(new Set()) // 复杂单词缓存
+
+// 获取单词翻译，只对数据库中难度级别≥2的单词显示翻译
 const getTranslation = (word: string): string => {
   const key = word.toLowerCase()
   
-  // 直接返回已缓存的翻译（预加载机制会负责填充缓存）
+  // 检查是否为数据库中难度级别≥2的单词
+  const dbWord = databaseDifficultWords.value[key]
+  if (!dbWord) {
+    // 如果不在数据库难度级别≥2单词列表中，不显示翻译
+    return ''
+  }
+  
+  // 优先返回数据库中的翻译
+  if (dbWord.translation) {
+    return dbWord.translation
+  }
+  
+  // 如果数据库中没有翻译，返回已缓存的翻译
   return wordTranslations.value[key] || ''
 }
 
-// 懒加载单词翻译 - 当用户悬停单词时调用
-const lazyLoadWordTranslation = async (word: string) => {
-  const key = word.toLowerCase()
+
+
+
+// 直接加载所有复杂单词的翻译（去除懒加载）
+const loadComplexWordTranslations = async (complexWords: string[]) => {
+  if (!complexWords || complexWords.length === 0) return
   
-  // 检查是否是高级词汇
-  if (!isAdvancedWord(word)) {
+  console.log(`开始加载 ${complexWords.length} 个复杂单词的翻译...`)
+  
+  // 并发加载所有复杂单词的翻译
+  const translationPromises = complexWords.map(async (word) => {
+    const key = word.toLowerCase()
+    
+    // 如果已有翻译缓存，跳过
+    if (wordTranslations.value[key]) {
+      return { word, translation: wordTranslations.value[key], cached: true }
+    }
+    
+    try {
+      const translation = await getWordTranslation(word)
+      if (translation) {
+        wordTranslations.value[key] = translation
+        return { word, translation, cached: false }
+      }
+    } catch (error) {
+      console.warn(`获取单词 "${word}" 翻译失败:`, error)
+    }
+    
+    return { word, translation: '', cached: false }
+  })
+  
+  const results = await Promise.all(translationPromises)
+  const successCount = results.filter(r => r.translation).length
+  const cachedCount = results.filter(r => r.cached).length
+  
+  console.log(`翻译加载完成: ${successCount}/${complexWords.length} 成功, ${cachedCount} 来自缓存`)
+}
+
+// 输出复杂单词统计信息到控制台
+const logComplexWordStats = (complexWords: string[]) => {
+  if (!complexWords || complexWords.length === 0) {
+    console.log('📊 复杂单词统计: 未发现复杂单词')
     return
   }
   
-  // 检查是否已有缓存或正在请求
-  if (!wordTranslations.value[key] && !pendingTranslations.has(key)) {
-    // 创建新的Promise并存储，避免重复请求
-    const translationPromise = getWordTranslation(word)
-      .catch((_err) => {
-        return ''
-      })
-      .finally(() => {
-        pendingTranslations.delete(key)
-      })
-    
-    pendingTranslations.set(key, translationPromise)
-  }
+  console.group('📊 复杂单词统计')
+  console.log(`总数: ${complexWords.length} 个`)
+  console.log('单词列表:', complexWords.join(', '))
+  
+  // 按长度分组统计
+  const lengthGroups = complexWords.reduce((acc, word) => {
+    const len = word.length
+    acc[len] = (acc[len] || 0) + 1
+    return acc
+  }, {} as Record<number, number>)
+  
+  console.log('按长度分布:')
+  Object.entries(lengthGroups)
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .forEach(([length, count]) => {
+      console.log(`  ${length} 字母: ${count} 个`)
+    })
+  
+  // 显示翻译状态
+  const translatedCount = complexWords.filter(word => 
+    wordTranslations.value[word.toLowerCase()]
+  ).length
+  
+  console.log(`翻译状态: ${translatedCount}/${complexWords.length} 已翻译`)
+  console.groupEnd()
 }
 
+// 数据库难度级别≥2单词统计
+const logDatabaseDifficultWords = (difficultWords: any[]) => {
+  if (!difficultWords || difficultWords.length === 0) {
+    console.log('📊 数据库难度级别≥2单词统计: 未发现符合条件的单词')
+    return
+  }
+  
+  console.group('📊 数据库难度级别≥2单词统计')
+  console.log(`总数: ${difficultWords.length} 个`)
+  console.log('单词列表:', difficultWords.map(w => w.word).join(', '))
+  
+  // 按难度级别分组统计
+  const difficultyGroups = difficultWords.reduce((acc, wordData) => {
+    const level = wordData.difficulty_level
+    acc[level] = (acc[level] || 0) + 1
+    return acc
+  }, {} as Record<number, number>)
+  
+  console.log('按难度级别分布:')
+  Object.entries(difficultyGroups)
+    .sort(([a], [b]) => Number(b) - Number(a)) // 从高到低排序
+    .forEach(([level, count]) => {
+      console.log(`  级别 ${level}: ${count} 个`)
+    })
+  
+  // 显示详细单词信息
+  console.log('详细信息:')
+  difficultWords
+    .sort((a, b) => b.difficulty_level - a.difficulty_level) // 按难度级别从高到低排序
+    .forEach(wordData => {
+      console.log(`  ${wordData.word} (级别${wordData.difficulty_level}): ${wordData.translation}`)
+    })
+  
+  console.groupEnd()
+}
+
+// 从内容中提取所有单词
+const extractAllWordsFromContent = (content: string): string[] => {
+  // 使用正则表达式提取所有英文单词
+  const words = content.match(/\b[a-zA-Z]+\b/g) || []
+  
+  // 去重并过滤掉太短的单词
+  const uniqueWords = [...new Set(words)]
+    .filter(word => word.length >= 2)
+    .map(word => word.toLowerCase())
+  
+  return uniqueWords
+}
+
+// AI单词处理函数
+const processWordsWithAI = async (words: string[]) => {
+  if (!words || words.length === 0) return
+  
+  console.log('🔍 开始AI单词处理，输入单词:', words)
+  
+  try {
+    // 使用AI服务过滤复杂单词
+    const complexWords = await WordDifficultyService.filterComplexWords(words)
+    console.log('🤖 AI复杂单词过滤结果:', complexWords)
+    
+    // 更新复杂单词缓存
+    complexWordsCache.value = new Set(complexWords.map(w => w.toLowerCase()))
+    
+    // 查询数据库中难度级别≥2的单词
+    console.log('📊 开始查询数据库难度级别≥2的单词...')
+    const difficultWordsFromDB = await WordDifficultyService.findDifficultWords(words)
+    console.log('📊 数据库查询结果:', difficultWordsFromDB)
+    
+    // 更新数据库难度级别≥2单词缓存
+    databaseDifficultWords.value = {}
+    
+    // 确保 difficultWordsFromDB 是数组并且有有效数据
+    if (Array.isArray(difficultWordsFromDB) && difficultWordsFromDB.length > 0) {
+      difficultWordsFromDB.forEach(wordData => {
+        if (wordData && wordData.word) {
+          const key = wordData.word.toLowerCase()
+          databaseDifficultWords.value[key] = wordData
+        }
+      })
+    } else {
+      console.log('📊 数据库查询结果为空或格式不正确')
+    }
+    
+    console.log('📊 更新后的 databaseDifficultWords:', databaseDifficultWords.value)
+    
+    // 输出数据库难度级别≥2单词的详细统计
+    logDatabaseDifficultWords(difficultWordsFromDB)
+    
+    // 直接加载所有复杂单词的翻译（去除懒加载）
+    await loadComplexWordTranslations(complexWords)
+    
+    // 输出复杂单词统计信息到控制台
+    logComplexWordStats(complexWords)
+    
+  } catch (error) {
+    console.error('AI单词处理失败:', error)
+    // 失败时清空缓存，回退到原有逻辑
+    complexWordsCache.value.clear()
+    databaseDifficultWords.value = {}
+  }
+}
 
 // 禁止背景滚动
 const disableBodyScroll = () => {
@@ -214,13 +406,88 @@ watch(() => showPopup.value, (newValue) => {
   }
 });
 
-// 处理单个段落的翻译
+// 新的增强翻译方法 - 按照新流程处理
+const processEnhancedTranslation = async (paragraph: string, index: number) => {
+
+  
+  // 初始化段落信息
+  const paragraphInfo: ParagraphInfo = {
+    text: paragraph,
+    translation: '',
+    keyWords: [] // 保留字段但不使用
+  }
+  // 更新响应式数据
+  paragraphInfos.value[index] = paragraphInfo
+  
+  try {
+    
+    // 使用新的增强翻译服务
+    const result = await EnhancedTranslationService.translateWithEnhancedFlow(paragraph, {
+      difficultyThreshold: 2, // 2级以上显示
+      timeouts: {
+        paragraph: 60000,      // 增加到60秒以处理长文本
+        prequery: 10000,
+        tencentTranslation: 60000,
+        volcanoModel: 45000,
+        databaseInsert: 15000
+      },
+      concurrency: {
+        maxParallelWords: 50,
+        batchSize: 20
+      }
+    })
+    
+    // 设置段落翻译结果
+    paragraphInfo.translation = result.paragraphTranslation
+    
+    console.log(`📊 段落 ${index + 1} 火山AI处理结果:`)
+    console.log(`- 总单词数: ${result.wordProcessing.totalWords}`)
+    console.log(`- 数据库匹配: ${result.wordProcessing.databaseMatched.length}`)
+    console.log(`- 新处理单词: ${result.wordProcessing.newWordsProcessed.length}`)
+    console.log(`- 显示单词数: ${result.wordProcessing.displayedWords.length}`)
+    
+    // 合并所有处理过的单词（数据库匹配 + 新处理）
+    const allProcessedWords = [
+      ...result.wordProcessing.databaseMatched,
+      ...result.wordProcessing.newWordsProcessed
+    ]
+    
+    console.log(`- 所有处理单词: ${allProcessedWords.length}`)
+    
+    // 处理所有单词，设置翻译和难度缓存
+    let complexWordsCount = 0
+    allProcessedWords.forEach(word => {
+      if (word.english && word.chinese) {
+        const key = word.english.toLowerCase()
+        
+        // 存储翻译文本
+        wordTranslations.value[key] = word.chinese
+        
+        // 存储具体的难度级别（1-10）
+        wordDifficultyLevels.value[key] = word.difficulty_level
+        
+        // 存储难度信息（布尔值：是否复杂）
+        const isComplex = word.difficulty_level >= 2
+        wordDifficultyCache.value[key] = isComplex
+        
+        if (isComplex) {
+          complexWordsCount++
+        }
+      }
+    })
+    
+  } catch (error) {
+    console.error(`❌ 段落 ${index + 1} 增强翻译失败:`, error)
+    paragraphInfo.translation = '翻译失败，请重试'
+  }
+}
+
+// 处理单个段落的翻译 - 使用增强翻译服务
 const processParagraph = async (paragraph: string, index: number) => {
   // 初始化段落信息
   const paragraphInfo: ParagraphInfo = {
     text: paragraph,
     translation: '',
-    isTranslating: true,
     keyWords: [] // 保留字段但不使用
   }
   
@@ -228,22 +495,57 @@ const processParagraph = async (paragraph: string, index: number) => {
   paragraphInfos.value[index] = paragraphInfo
   
   try {
-    // 仅翻译段落
-    paragraphInfo.isTranslating = true
     
-    // 设置翻译超时时间（8秒）
-    const translationTimeout = 8000
+    // 设置翻译超时时间（35秒，因为需要处理段落和单词翻译，包含重试机制）
+    const translationTimeout = 35000
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error('翻译请求超时')), translationTimeout)
     })
     
-    // 使用Promise.race来实现超时控制
-    const translation = await Promise.race([
-      translateText(paragraph),
+    // 使用优化的翻译服务进行并行处理：段落翻译 + 单词预查询
+    const result = await Promise.race([
+      OptimizedTranslationService.translateParagraphOptimized(paragraph, {
+        enableParallel: true,
+        enableAsyncSupplement: true,
+        includeWordDetails: true,
+        timeouts: {
+          paragraph: 20000,
+          prequery: 10000,
+          supplement: 15000
+        },
+        concurrency: {
+          maxParallelTasks: 3,
+          wordBatchSize: 50
+        }
+      }),
       timeoutPromise
-    ]) as string
+    ])
     
-    paragraphInfo.translation = translation
+    // 设置段落翻译结果
+    paragraphInfo.translation = result.paragraphTranslation
+    
+    // 先进行AI分析，然后只存储复杂单词的翻译
+    if (result.wordTranslations && Object.keys(result.wordTranslations).length > 0) {
+      // AI处理：提取所有单词并进行复杂度分析
+      await processWordsWithAI(Object.keys(result.wordTranslations))
+      
+      // 只存储复杂单词的翻译
+      Object.entries(result.wordTranslations).forEach(([word, translation]) => {
+        if (word && translation) {
+          const key = word.toLowerCase()
+          // 只有复杂单词才存储翻译
+          if (complexWordsCache.value.has(key)) {
+            wordTranslations.value[key] = translation
+          }
+        }
+      })
+    }
+    
+    // 如果有处理错误，记录警告
+    if (result.status.errors && result.status.errors.length > 0) {
+      console.warn(`段落 ${index + 1} 处理过程中的警告:`, result.status.errors)
+    }
+    
   } catch (error) {
     console.error('段落翻译失败:', error)
     
@@ -280,8 +582,6 @@ const processParagraph = async (paragraph: string, index: number) => {
     } else {
       paragraphInfo.translation = errorMessage
     }
-  } finally {
-    paragraphInfo.isTranslating = false
   }
 }
 
@@ -291,6 +591,16 @@ const processParagraph = async (paragraph: string, index: number) => {
 const loadData = () => {
   loading.value = true
   error.value = null
+  isParagraphTranslationComplete.value = false // 重置段落翻译状态
+  let paragraphsProcessed = false // 标志变量，跟踪是否已经处理过段落
+  
+  // 清理所有缓存
+  wordTranslations.value = {}
+  wordDifficultyCache.value = {}
+  
+  // 重置AI相关状态
+  complexWordsCache.value.clear()
+  databaseDifficultWords.value = {}
   
   try {
     // 首先尝试直接从localStorage读取数据
@@ -311,8 +621,9 @@ const loadData = () => {
           paragraphs.value = essay.content.split('\n').filter((p: string) => p.trim())
           loading.value = false
           
-          // 加载完成后处理所有段落
+          // 从localStorage加载时处理段落
           processAllParagraphs()
+          paragraphsProcessed = true
           return
         }
       }
@@ -340,20 +651,22 @@ const loadData = () => {
   } finally {
     loading.value = false
     
-    // 加载完成后处理所有段落
-    if (!error.value && paragraphs.value.length > 0) {
+    // 只有在还没有处理过段落且有有效数据时才处理段落
+    if (!paragraphsProcessed && !error.value && paragraphs.value.length > 0) {
       processAllParagraphs()
     }
   }
 }
 
 // 获取单词翻译
-const getWordTranslation = async (word: string): Promise<string> => {
+const getWordTranslation = async (word: string, contextText?: string): Promise<string> => {
   // 转换为小写以统一缓存键
   const normalizedWord = word.toLowerCase().trim()
   
-  // 首先检查单词是否为四级及以上难度
-  if (!isAdvancedWord(word)) {
+  // 首先检查单词是否为2级及以上难度
+  const { WordDifficultyService } = await import('../services/wordDifficultyService')
+  const shouldShow = await WordDifficultyService.shouldShowTranslation(word)
+  if (!shouldShow) {
     return ''
   }
   
@@ -363,18 +676,24 @@ const getWordTranslation = async (word: string): Promise<string> => {
   }
   
   try {
-    // 查询单词信息
-    const result = await queryWord(word)
+    // 查询单词信息，传递上下文
+    const result = await queryWord(word, contextText)
     
     // 获取第一个翻译结果作为单词翻译
     let translation = ''
-    if (result && result.definitions && result.definitions.length > 0 && result.definitions[0]) {
-        // 只取第一个翻译结果，并移除多余的内容
-        const firstDef = String(result.definitions[0])
-        const parts = firstDef.split('；')
-        const part1 = parts[0] || ''
-        const dotParts = part1.split('. ')
-        translation = dotParts[0] || ''
+    if (result && result.definitions && Array.isArray(result.definitions) && result.definitions.length > 0) {
+        // 确保获取的是字符串类型的翻译
+        const firstDef = result.definitions[0]
+        if (typeof firstDef === 'string') {
+          // 只取第一个翻译结果，并移除多余的内容
+          const parts = firstDef.split('；')
+          const part1 = parts[0] || ''
+          const dotParts = part1.split('. ')
+          translation = dotParts[0] || ''
+        } else {
+          // 如果不是字符串，转换为字符串并提取
+          translation = String(firstDef)
+        }
         
         // 存储翻译结果到wordTranslations对象中
         wordTranslations.value[normalizedWord] = translation
@@ -382,57 +701,63 @@ const getWordTranslation = async (word: string): Promise<string> => {
     
     return translation
   } catch (error) {
+    console.warn(`获取单词翻译失败: ${word}`, error)
     return ''
   }
 }
 
-// 预加载段落中所有单词的翻译（添加并发限制）
+// 预加载段落中所有单词的翻译（基于火山AI处理结果）
 const preloadWordTranslations = async (paragraph: string) => {
-  const tokens = tokenizeText(paragraph)
-  const words = tokens
-    .filter((token: any) => token.type === 'word')
-    .map((token: any) => token.text)
-    .filter((word: string, index: number, self: string[]) => self.indexOf(word) === index) // 去重
-    .filter((word: string) => isAdvancedWord(word)) // 只预加载高级词汇
-  
-  // 设置并发限制，每次最多5个请求
-  const concurrencyLimit = 5;
-  
-  // 分批次处理单词
-  for (let i = 0; i < words.length; i += concurrencyLimit) {
-    const batch = words.slice(i, i + concurrencyLimit);
+  try {
+    console.log('🔄 开始预加载单词翻译，基于火山AI处理结果...')
     
-    // 并行处理当前批次的单词，但限制并发数量
-    await Promise.all(batch.map(async (word: string) => {
-      const normalizedWord = word.toLowerCase();
-      if (!wordTranslations.value[normalizedWord]) {
-        try {
-          const translation = await getWordTranslation(word);
-          wordTranslations.value[normalizedWord] = translation;
-        } catch (error) {
-          // 错误处理，但不中断整体流程
+    // 调用后端增强翻译接口，获取火山AI处理的完整结果
+    const EnhancedTranslationService = (await import('../services/enhancedTranslationService')).default
+    const result = await EnhancedTranslationService.translateWithEnhancedFlow(paragraph, {
+      difficultyThreshold: 2 // 只显示2级以上的复杂单词
+    })
+    
+    if (result.wordProcessing) {
+      const { databaseMatched, newWordsProcessed, displayedWords } = result.wordProcessing
+      
+      // 合并所有处理过的单词
+      const allProcessedWords = [...databaseMatched, ...newWordsProcessed]
+      
+      console.log(`📊 火山AI处理结果: 总计${allProcessedWords.length}个单词, 显示${displayedWords.length}个复杂单词`)
+      
+      // 设置单词难度缓存和翻译缓存
+      allProcessedWords.forEach(wordDetail => {
+        const key = wordDetail.english.toLowerCase()
+        
+        // 设置具体的难度级别（1-10）
+        wordDifficultyLevels.value[key] = wordDetail.difficulty_level
+        
+        // 设置难度缓存：2级以上为复杂单词
+        wordDifficultyCache.value[key] = wordDetail.difficulty_level >= 2
+        
+        // 设置翻译缓存
+        if (wordDetail.chinese && wordDetail.chinese !== wordDetail.english) {
+          wordTranslations.value[key] = wordDetail.chinese
         }
-      }
-    }));
-    
-    // 每批次之间添加短暂延迟，避免连续发送过多请求
-    if (i + concurrencyLimit < words.length) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      })
     }
+    
+  } catch (error) {
+    console.error('❌ 预加载单词翻译失败:', error)
+    // 降级处理：如果火山AI失败，不影响页面显示
   }
 }
 
-// 批量处理所有段落，同时预加载单词翻译
+// 批量处理所有段落，确保单词翻译在段落翻译完成后进行
 const processAllParagraphs = async () => {
-  // 重置段落信息，初始状态为未开始翻译
+  // 重置段落信息
   paragraphInfos.value = []
   
-  // 为每个段落创建初始信息（未开始翻译状态）
+  // 为每个段落创建初始信息
   paragraphs.value.forEach((paragraph, index) => {
     paragraphInfos.value[index] = {
       text: paragraph,
       translation: '',
-      isTranslating: false, // 初始状态为未开始
       keyWords: [] // 保留字段但不使用
     }
   })
@@ -440,54 +765,59 @@ const processAllParagraphs = async () => {
   // 优化处理策略：并发处理，提高速度
   const concurrentLimit = 3; // 同时处理3个段落翻译
   
-  // 先快速预加载所有段落的单词翻译（并发进行，不阻塞翻译）
-  const wordPreloadPromises = paragraphs.value.map(paragraph => 
-    preloadWordTranslations(paragraph).catch(() => {}) // 忽略预加载错误
-  )
-  
   // 创建翻译任务队列
   const translationTasks = paragraphs.value.map((paragraph, index) => {
     if (!paragraph) return null
     
     return async () => {
-      // 设置当前段落为翻译中状态
-      paragraphInfos.value[index].isTranslating = true
-      await processParagraph(paragraph, index)
+      await processEnhancedTranslation(paragraph, index)
     }
   }).filter((task): task is (() => Promise<void>) => task !== null)
   
   // 使用简单的并发控制处理翻译任务
   const executeWithConcurrency = async (tasks: (() => Promise<void>)[], limit: number) => {
-    const executing: Promise<void>[] = []
-    
-    for (const task of tasks) {
-      const promise = task()
-      executing.push(promise)
-      
-      if (executing.length >= limit) {
-        await Promise.race(executing)
-        // 移除已完成的任务
-        const completed = await Promise.allSettled(executing)
-        for (let i = executing.length - 1; i >= 0; i--) {
-          if (completed[i].status === 'fulfilled' || completed[i].status === 'rejected') {
-            executing.splice(i, 1)
-          }
-        }
-      }
+    const results = [];
+    let i = 0;
+    while (i < tasks.length) {
+        const batch = tasks.slice(i, i + limit).map(task => task());
+        results.push(...await Promise.all(batch));
+        i += limit;
     }
-    
-    // 等待剩余任务完成
-    await Promise.all(executing)
+    return results;
   }
   
-  // 执行翻译任务
+  // 第一步：执行段落翻译任务，确保段落映射完成
   await executeWithConcurrency(translationTasks, concurrentLimit)
-  
-  // 等待单词预加载完成（如果还未完成）
-  await Promise.allSettled(wordPreloadPromises)
+
+  // 在这里调用 processEssayAfterSave
+  try {
+    await processEssayAfterSave(content.value);
+  } catch (error) {
+    console.error('处理作文并保存单词时出错:', error);
+  }
+
+  // 提取所有单词并进行AI处理
+  try {
+    console.log('🔍 开始提取所有单词进行AI处理...')
+    const allWords = extractAllWordsFromContent(content.value)
+    console.log('📝 提取到的所有单词:', allWords)
+    
+    if (allWords.length > 0) {
+      await processWordsWithAI(allWords)
+    }
+  } catch (error) {
+    console.error('AI单词处理失败:', error)
+  }
+
+  // 设置段落翻译完成状态，允许单词查询
+  isParagraphTranslationComplete.value = true
+
+  // 注意：单词翻译已经在processEnhancedTranslation中完成，无需重复处理
+  console.log('✅ 所有段落翻译和单词处理已完成')
+
 }
 
-// 重试翻译段落
+// 重试翻译段落 - 使用增强翻译服务
 const retryTranslation = async (index: number) => {
   if (index < 0 || index >= paragraphInfos.value.length) {
     return
@@ -502,22 +832,50 @@ const retryTranslation = async (index: number) => {
   
   // 重置翻译状态
   paragraphInfo.translation = ''
-  paragraphInfo.isTranslating = true
   
   try {
-    // 设置翻译超时时间（8秒）
-    const translationTimeout = 8000
+    // 设置翻译超时时间（10秒）
+    const translationTimeout = 10000
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error('翻译请求超时')), translationTimeout)
     })
     
-    // 使用Promise.race来实现超时控制
-    const translation = await Promise.race([
-      translateText(paragraph),
+    // 使用新的增强翻译服务重试
+    const result = await Promise.race([
+      EnhancedTranslationService.translateWithEnhancedFlow(paragraph, {
+        difficultyThreshold: 2,
+        timeouts: {
+          paragraph: 45000,     // 重试时也给足够时间
+          prequery: 3000,
+          tencentTranslation: 15000,
+          volcanoModel: 10000,
+          databaseInsert: 5000
+        }
+      }),
       timeoutPromise
-    ]) as string
+    ]) as EnhancedTranslationResult
     
-    paragraphInfo.translation = translation
+    // 设置段落翻译结果
+    paragraphInfo.translation = result.paragraphTranslation
+    
+    // 处理单词翻译结果 - 显示2级以上的单词
+    if (result.wordProcessing.displayedWords.length > 0) {
+      result.wordProcessing.displayedWords.forEach(word => {
+        if (word.english && word.chinese) {
+          const key = word.english.toLowerCase()
+          
+          // 存储翻译文本
+          wordTranslations.value[key] = word.chinese
+          
+          // 存储具体的难度级别（1-10）
+          wordDifficultyLevels.value[key] = word.difficulty_level
+          
+          // 存储难度信息（2级以上才显示）
+          wordDifficultyCache.value[key] = word.difficulty_level >= 2
+        }
+      })
+    }
+    
   } catch (error) {
     console.error('重试翻译失败:', error)
     
@@ -539,8 +897,6 @@ const retryTranslation = async (index: number) => {
     }
     
     paragraphInfo.translation = errorMessage
-  } finally {
-    paragraphInfo.isTranslating = false
   }
 }
 
@@ -710,6 +1066,11 @@ const closePopup = () => {
   selectedText.value = ''
 }
 
+// 监听路由参数变化，重新加载数据
+watch(id, () => {
+  loadData()
+}, { immediate: false })
+
 // 组件挂载时加载数据
 onMounted(() => {
   loadData()
@@ -759,6 +1120,8 @@ onUnmounted(() => {
   color: var(--color-text-light);
   margin: 0;
 }
+
+
 
 /* 错误状态 */
 .error-state {
@@ -1174,6 +1537,8 @@ onUnmounted(() => {
 .retry-btn:active {
   transform: translateY(0);
 }
+
+
 
 /* 响应式设计 */
 @media (max-width: 768px) {

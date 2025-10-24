@@ -7,6 +7,13 @@
             <h3 class="word-title">{{ word }}
               <span v-if="wordInfo.phonetic" class="inline-phonetic">{{ wordInfo.phonetic }}</span>
             </h3>
+            <div v-if="difficultyLevel && difficultyLevel > 0" class="difficulty-badge">
+              <span class="difficulty-label">难度级别:</span>
+              <span class="difficulty-level" :class="getDifficultyClass(difficultyLevel)">
+                {{ difficultyLevel }}/10
+              </span>
+              <span class="difficulty-desc">{{ getDifficultyDescription(difficultyLevel) }}</span>
+            </div>
           </div>
           <button class="speaker-btn" @click="playPronunciation" style="margin-left: 20px;">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -56,6 +63,8 @@
 </template>
 
 <script setup lang="ts">
+import { ref, computed, watch } from 'vue'
+
 interface WordInfo {
   phonetic: string
   definitions: string[]
@@ -65,6 +74,7 @@ interface Props {
   show: boolean
   word: string
   wordInfo: WordInfo
+  difficultyLevel?: number
   isRefreshing?: boolean
 }
 
@@ -83,6 +93,32 @@ const playPronunciation = () => {
     utterance.rate = 0.8
     speechSynthesis.speak(utterance)
   }
+}
+
+// 获取难度级别对应的CSS类
+const getDifficultyClass = (level: number): string => {
+  if (level <= 2) return 'difficulty-easy'
+  if (level <= 4) return 'difficulty-medium'
+  if (level <= 6) return 'difficulty-hard'
+  if (level <= 8) return 'difficulty-very-hard'
+  return 'difficulty-extreme'
+}
+
+// 获取难度级别描述
+const getDifficultyDescription = (level: number): string => {
+  const descriptions: { [key: number]: string } = {
+    1: '基础词汇',
+    2: '常用词汇', 
+    3: '中等词汇',
+    4: '进阶词汇',
+    5: '高级词汇',
+    6: '专业词汇',
+    7: '学术词汇',
+    8: '高难词汇',
+    9: '专家词汇',
+    10: '极难词汇'
+  }
+  return descriptions[level] || '未知难度'
 }
 </script>
 
@@ -148,6 +184,56 @@ const playPronunciation = () => {
   color: var(--color-text-light);
   font-weight: 400;
   font-style: italic;
+}
+
+.difficulty-badge {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.difficulty-label {
+  color: var(--color-text-light);
+  font-weight: 500;
+}
+
+.difficulty-level {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.difficulty-easy {
+  background: #e8f5e8;
+  color: #2e7d32;
+}
+
+.difficulty-medium {
+  background: #fff3e0;
+  color: #f57c00;
+}
+
+.difficulty-hard {
+  background: #ffebee;
+  color: #d32f2f;
+}
+
+.difficulty-very-hard {
+  background: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.difficulty-extreme {
+  background: #e8eaf6;
+  color: #3f51b5;
+}
+
+.difficulty-desc {
+  color: var(--color-text-light);
+  font-size: 12px;
 }
 
 .speaker-btn {

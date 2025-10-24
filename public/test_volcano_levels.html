@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>火山API级别测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .word-result {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 3px;
+        }
+        .level-high {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+        }
+        .level-medium {
+            background: #fff3e0;
+            border-left: 4px solid #ff9800;
+        }
+        .level-low {
+            background: #e8f5e8;
+            border-left: 4px solid #4caf50;
+        }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
+        .error {
+            color: #f44336;
+            background: #ffebee;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .stats {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔥 火山API级别匹配测试</h1>
+    
+    <div class="test-section">
+        <h2>测试单词</h2>
+        <p>测试一些常见单词的级别判断：</p>
+        <button onclick="testCommonWords()">测试常见单词</button>
+        <button onclick="testDifficultWords()">测试困难单词</button>
+        <button onclick="testMixedWords()">测试混合单词</button>
+        <button onclick="clearResults()">清空结果</button>
+    </div>
+
+    <div class="stats" id="stats" style="display: none;">
+        <h3>统计信息</h3>
+        <div id="statsContent"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>测试结果</h2>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8080';
+        
+        // 测试单词组
+        const testWordsData = {
+            common: ['the', 'and', 'is', 'in', 'to', 'have', 'it', 'for', 'not', 'on'],
+            difficult: ['sophisticated', 'phenomenon', 'paradigm', 'ubiquitous', 'serendipity', 'ephemeral', 'quintessential', 'perspicacious', 'magnanimous', 'ineffable'],
+            mixed: ['cat', 'beautiful', 'understand', 'sophisticated', 'run', 'magnificent', 'simple', 'extraordinary', 'book', 'incomprehensible']
+        };
+
+        async function testWords(words, category) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML += `<h3>测试 ${category} 单词</h3>`;
+            
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading';
+            loadingDiv.textContent = `正在测试 ${words.length} 个单词...`;
+            resultsDiv.appendChild(loadingDiv);
+
+            try {
+                // 使用增强翻译API测试
+                const response = await fetch(`${API_BASE}/api/enhanced/paragraph`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: words.join(' '),
+                        options: {
+                            difficultyThreshold: 1, // 显示所有级别
+                            timeouts: {
+                                paragraph: 30000,
+                                volcanoModel: 30000
+                            }
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                loadingDiv.remove();
+
+                if (result.success && result.data.wordProcessing) {
+                    displayWordResults(result.data.wordProcessing, category);
+                    updateStats(result.data.wordProcessing, category);
+                } else {
+                    throw new Error(result.message || '未知错误');
+                }
+
+            } catch (error) {
+                loadingDiv.remove();
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error';
+                errorDiv.textContent = `测试失败: ${error.message}`;
+                resultsDiv.appendChild(errorDiv);
+            }
+        }
+
+        function displayWordResults(wordProcessing, category) {
+            const resultsDiv = document.getElementById('results');
+            
+            // 显示所有处理的单词
+            const allWords = [
+                ...(wordProcessing.databaseMatched || []),
+                ...(wordProcessing.newWordsProcessed || [])
+            ];
+
+            if (allWords.length === 0) {
+                const noResultsDiv = document.createElement('div');
+                noResultsDiv.className = 'word-result';
+                noResultsDiv.textContent = '没有找到单词结果';
+                resultsDiv.appendChild(noResultsDiv);
+                return;
+            }
+
+            allWords.forEach(word => {
+                const wordDiv = document.createElement('div');
+                wordDiv.className = 'word-result';
+                
+                // 根据级别设置样式
+                if (word.difficulty_level >= 6) {
+                    wordDiv.classList.add('level-high');
+                } else if (word.difficulty_level >= 3) {
+                    wordDiv.classList.add('level-medium');
+                } else {
+                    wordDiv.classList.add('level-low');
+                }
+
+                wordDiv.innerHTML = `
+                    <strong>${word.english}</strong> → ${word.chinese || '无翻译'}
+                    <br>
+                    <small>
+                        级别: ${word.difficulty_level || '未知'} | 
+                        来源: ${word.source || '未知'} |
+                        音标: ${word.phonetic || '无'}
+                    </small>
+                `;
+                resultsDiv.appendChild(wordDiv);
+            });
+
+            // 显示显示的单词（根据阈值过滤后的）
+            if (wordProcessing.displayedWords && wordProcessing.displayedWords.length > 0) {
+                const displayedDiv = document.createElement('div');
+                displayedDiv.className = 'stats';
+                displayedDiv.innerHTML = `
+                    <h4>根据阈值显示的单词 (${wordProcessing.displayedWords.length}个)</h4>
+                    ${wordProcessing.displayedWords.map(w => `${w.english}(${w.difficulty_level})`).join(', ')}
+                `;
+                resultsDiv.appendChild(displayedDiv);
+            }
+        }
+
+        function updateStats(wordProcessing, category) {
+            const statsDiv = document.getElementById('stats');
+            const statsContent = document.getElementById('statsContent');
+            
+            const allWords = [
+                ...(wordProcessing.databaseMatched || []),
+                ...(wordProcessing.newWordsProcessed || [])
+            ];
+
+            // 统计级别分布
+            const levelCounts = {};
+            allWords.forEach(word => {
+                const level = word.difficulty_level || 0;
+                levelCounts[level] = (levelCounts[level] || 0) + 1;
+            });
+
+            const statsHtml = `
+                <h4>${category} 单词统计</h4>
+                <p>总单词数: ${allWords.length}</p>
+                <p>显示单词数: ${wordProcessing.displayedWords?.length || 0}</p>
+                <p>级别分布:</p>
+                <ul>
+                    ${Object.entries(levelCounts)
+                        .sort(([a], [b]) => parseInt(a) - parseInt(b))
+                        .map(([level, count]) => `<li>级别 ${level}: ${count} 个单词</li>`)
+                        .join('')}
+                </ul>
+                <p>数据库匹配: ${wordProcessing.databaseMatched?.length || 0} 个</p>
+                <p>新处理单词: ${wordProcessing.newWordsProcessed?.length || 0} 个</p>
+            `;
+
+            statsContent.innerHTML += statsHtml;
+            statsDiv.style.display = 'block';
+        }
+
+        function testCommonWords() {
+            testWords(testWordsData.common, '常见');
+        }
+
+        function testDifficultWords() {
+            testWords(testWordsData.difficult, '困难');
+        }
+
+        function testMixedWords() {
+            testWords(testWordsData.mixed, '混合');
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('stats').style.display = 'none';
+            document.getElementById('statsContent').innerHTML = '';
+        }
+
+        // 页面加载时显示API配置
+        window.onload = function() {
+            console.log('API Base URL:', API_BASE);
+            console.log('测试页面已加载');
+        };
+    </script>
+</body>
+</html>

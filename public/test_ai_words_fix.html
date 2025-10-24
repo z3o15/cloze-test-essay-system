@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI单词处理API修复测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 AI单词处理API修复测试</h1>
+        
+        <div class="test-section info">
+            <h3>📋 测试说明</h3>
+            <p>此页面用于测试修复后的AI单词处理API是否正常工作</p>
+            <p><strong>修复内容：</strong>在前端API配置中添加了缺失的 aiWords 配置</p>
+        </div>
+
+        <div class="test-section">
+            <h3>🧪 测试1: 批量处理单词</h3>
+            <button onclick="testBatchProcess()">测试 batchProcess API</button>
+            <div id="batchProcessResult" class="log"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 测试2: 过滤复杂单词</h3>
+            <button onclick="testFilterComplex()">测试 filterComplex API</button>
+            <div id="filterComplexResult" class="log"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>✅ 测试3: 检查翻译需求</h3>
+            <button onclick="testCheckTranslation()">测试 checkTranslation API</button>
+            <div id="checkTranslationResult" class="log"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>⚙️ 测试4: 配置状态</h3>
+            <button onclick="testConfigStatus()">测试 configStatus API</button>
+            <div id="configStatusResult" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8080';
+        
+        // 测试用单词
+        const testWords = ['hello', 'world', 'complex', 'sophisticated', 'simple'];
+
+        async function makeRequest(url, data = null) {
+            try {
+                const options = {
+                    method: data ? 'POST' : 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                };
+                
+                if (data) {
+                    options.body = JSON.stringify(data);
+                }
+                
+                const response = await fetch(url, options);
+                const result = await response.json();
+                
+                return {
+                    success: response.ok,
+                    status: response.status,
+                    data: result
+                };
+            } catch (error) {
+                return {
+                    success: false,
+                    error: error.message
+                };
+            }
+        }
+
+        async function testBatchProcess() {
+            const resultDiv = document.getElementById('batchProcessResult');
+            resultDiv.textContent = '🔄 正在测试批量处理...';
+            
+            const result = await makeRequest(`${API_BASE}/api/ai-words/batch-process`, {
+                words: testWords
+            });
+            
+            resultDiv.textContent = `📊 批量处理结果:\n${JSON.stringify(result, null, 2)}`;
+            resultDiv.parentElement.className = `test-section ${result.success ? 'success' : 'error'}`;
+        }
+
+        async function testFilterComplex() {
+            const resultDiv = document.getElementById('filterComplexResult');
+            resultDiv.textContent = '🔄 正在测试复杂单词过滤...';
+            
+            const result = await makeRequest(`${API_BASE}/api/ai-words/filter-complex`, {
+                words: testWords
+            });
+            
+            resultDiv.textContent = `🔍 复杂单词过滤结果:\n${JSON.stringify(result, null, 2)}`;
+            resultDiv.parentElement.className = `test-section ${result.success ? 'success' : 'error'}`;
+        }
+
+        async function testCheckTranslation() {
+            const resultDiv = document.getElementById('checkTranslationResult');
+            resultDiv.textContent = '🔄 正在测试翻译检查...';
+            
+            const result = await makeRequest(`${API_BASE}/api/ai-words/check-translation`, {
+                word: 'sophisticated'
+            });
+            
+            resultDiv.textContent = `✅ 翻译检查结果:\n${JSON.stringify(result, null, 2)}`;
+            resultDiv.parentElement.className = `test-section ${result.success ? 'success' : 'error'}`;
+        }
+
+        async function testConfigStatus() {
+            const resultDiv = document.getElementById('configStatusResult');
+            resultDiv.textContent = '🔄 正在测试配置状态...';
+            
+            const result = await makeRequest(`${API_BASE}/api/ai-words/config-status`);
+            
+            resultDiv.textContent = `⚙️ 配置状态结果:\n${JSON.stringify(result, null, 2)}`;
+            resultDiv.parentElement.className = `test-section ${result.success ? 'success' : 'error'}`;
+        }
+
+        // 页面加载时显示当前API配置
+        window.onload = function() {
+            console.log('🔧 AI单词处理API修复测试页面已加载');
+            console.log('📍 后端地址:', API_BASE);
+            console.log('🧪 测试单词:', testWords);
+        };
+    </script>
+</body>
+</html>

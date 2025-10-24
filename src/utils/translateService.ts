@@ -1,5 +1,47 @@
 // 翻译服务模块
 import httpClient from './httpClient'
+import { saveTranslationToDatabase } from './translation'
+import { API_URLS } from '../config/api'
+
+// 自动保存配置
+const AUTO_SAVE_CONFIG = {
+  enabled: true,
+  minTextLength: 10, // 最小文本长度才保存
+  saveDelay: 1000 // 延迟保存时间（毫秒）
+}
+
+// 待保存的翻译队列
+const pendingSaves = new Map<string, { original: string, translation: string, timestamp: number }>()
+
+// 自动保存翻译到数据库
+const autoSaveTranslation = async (originalText: string, translation: string): Promise<void> => {
+  if (!AUTO_SAVE_CONFIG.enabled || originalText.length < AUTO_SAVE_CONFIG.minTextLength) {
+    return
+  }
+
+  const saveKey = `${originalText}_${translation}`
+  const now = Date.now()
+  
+  // 添加到待保存队列
+  pendingSaves.set(saveKey, {
+    original: originalText,
+    translation: translation,
+    timestamp: now
+  })
+
+  // 延迟保存
+  setTimeout(async () => {
+    const pendingItem = pendingSaves.get(saveKey)
+    if (pendingItem && pendingItem.timestamp === now) {
+      try {
+        await saveTranslationToDatabase(originalText, translation)
+        pendingSaves.delete(saveKey)
+      } catch (error) {
+        console.error('自动保存翻译失败:', error)
+      }
+    }
+  }, AUTO_SAVE_CONFIG.saveDelay)
+}
 
 // 创建超时Promise
 const createTimeoutPromise = (ms: number): Promise<never> => {
@@ -43,16 +85,31 @@ const getLocalTranslation = (text: string): string | null => {
 
 // 通过后端代理翻译
 const translateViaBackend = async (text:string, sourceLanguage = 'en', targetLanguage = 'zh'): Promise<string> => {
+  console.log('开始调用后端翻译API...')
+  console.log('请求URL:', API_URLS.translate.translate())
+  console.log('请求参数:', { text, source_lang: sourceLanguage, target_lang: targetLanguage })
+  
   const resp = await Promise.race([
-    httpClient.post('/api/translate', {
+    httpClient.post(API_URLS.translate.translate(), {
       text,
-      sourceLanguage,
-      targetLanguage
+      source_lang: sourceLanguage,
+      target_lang: targetLanguage
     }),
     createTimeoutPromise(20000)
   ])
+  
+  console.log('后端API响应:', resp)
   const data = resp?.data || {}
-  const translation = data.translation || data?.data?.translation || ''
+  console.log('响应数据:', data)
+  
+  // 支持多种响应格式 - 修复后端返回target_text字段的问题
+  const translation = data.translation || 
+                     data?.data?.translation || 
+                     data?.data?.target_text || 
+                     data?.target_text || 
+                     ''
+  console.log('提取的翻译结果:', translation)
+  
   if (typeof translation === 'string' && translation.trim().length > 0) {
     return translation
   }
@@ -65,27 +122,38 @@ export const translateText = async (text: string): Promise<string> => {
   const trimmedText = text.trim()
   if (!trimmedText) return ''
 
-  if (translationCache.has(trimmedText)) {
-    return translationCache.get(trimmedText) || ''
+  // 1. 检查段落翻译缓存（适用于较长文本）
+  if (trimmedText.length > 20) { // 对于较长的文本使用段落缓存
+    const cachedTranslation = translationCache.get(trimmedText)
+    if (cachedTranslation) {
+      return cachedTranslation
+    }
   }
 
+  // 2. 检查本地翻译字典
   const localTranslation = getLocalTranslation(trimmedText)
   if (localTranslation) {
-    translationCache.set(trimmedText, localTranslation)
     return localTranslation
   }
 
+  // 3. 通过后端API翻译
   try {
     const translation = await translateViaBackend(trimmedText)
-    translationCache.set(trimmedText, translation)
-    return translation
-  } catch (error: any) {
-    console.error('翻译失败:', error)
-    if (error.message === '请求超时') {
-      throw new Error('翻译请求超时，请稍后重试')
-    } else {
-      throw new Error('翻译服务暂时不可用，请稍后重试')
+    
+    // 缓存翻译结果
+    if (trimmedText.length > 20) {
+      translationCache.set(trimmedText, translation)
     }
+    
+    // 自动保存翻译结果
+    if (AUTO_SAVE_CONFIG.enabled) {
+      autoSaveTranslation(trimmedText, translation)
+    }
+    
+    return translation
+  } catch (error) {
+    console.error('翻译失败:', error)
+    throw error // 抛出错误而不是返回原文，这样可以看到真正的问题
   }
 }
 

@@ -1,14 +1,15 @@
 <template>
   <div class="manage-container">
     <!-- 顶部横幅 -->
-    <HeroBanner 
+    <UnifiedHeader 
+      type="banner"
       title="作文管理" 
       subtitle="管理和查看您的作文练习"
     >
       <template #actions>
         <ThemeToggle />
       </template>
-    </HeroBanner>
+    </UnifiedHeader>
 
     <!-- 搜索栏 -->
     <SearchBar 
@@ -41,7 +42,7 @@ import { useStore } from '../store'
 import { showConfirmDialog } from 'vant'
 
 // 组件导入
-import HeroBanner from '../components/common/HeroBanner.vue'
+import UnifiedHeader from '../components/common/UnifiedHeader.vue'
 import SearchBar from '../components/ui/SearchBar.vue'
 import EssayList from '../components/essay/EssayList.vue'
 import FloatingActionButton from '../components/ui/FloatingActionButton.vue'
@@ -94,13 +95,14 @@ const handleDelete = async (essayId: string) => {
     await store.deleteEssay(essayId)
   } catch (error) {
     // 用户取消删除或删除失败，静默处理
-    console.log('删除操作取消或失败:', error)
   }
 }
 
 const navigateToRecord = () => {
   router.push('/record')
 }
+
+
 
 // 生命周期
 onMounted(() => {
@@ -140,4 +142,24 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* API测试按钮样式 */
+.api-test-btn {
+  padding: 8px 16px;
+  margin-right: 12px;
+  background-color: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.api-test-btn:hover {
+  background-color: var(--color-primary-hover);
+  transform: translateY(-1px);
+}
+
+
 </style>

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试修复后的AI单词处理功能</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            white-space: pre-wrap;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 测试修复后的AI单词处理功能</h1>
+    
+    <div class="test-section">
+        <h3>📝 测试文本</h3>
+        <p>The quick brown fox jumps over the lazy dog. This sentence contains simple and complex words for testing purposes.</p>
+        <p><strong>测试单词:</strong> ["quick", "brown", "fox", "jumps", "lazy", "sentence", "contains", "simple", "complex", "testing", "purposes"]</p>
+    </div>
+
+    <div class="test-section">
+        <h3>🧪 API 测试</h3>
+        <button class="test-button" onclick="testDifficultWordsAPI()">测试 /api/words/difficult</button>
+        <button class="test-button" onclick="testFilterComplexAPI()">测试 /api/ai-words/filter-complex</button>
+        <div id="apiResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>🎯 前端服务测试</h3>
+        <button class="test-button" onclick="testWordDifficultyService()">测试 WordDifficultyService</button>
+        <div id="serviceResult" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>📊 控制台日志</h3>
+        <p>请打开浏览器开发者工具查看控制台输出，观察AI单词处理的详细日志。</p>
+        <button class="test-button" onclick="clearConsole()">清空控制台</button>
+    </div>
+
+    <script>
+        const testWords = ["quick", "brown", "fox", "jumps", "lazy", "sentence", "contains", "simple", "complex", "testing", "purposes"];
+
+        async function testDifficultWordsAPI() {
+            const resultDiv = document.getElementById('apiResult');
+            resultDiv.textContent = '正在测试 /api/words/difficult API...';
+            
+            try {
+                const response = await fetch('/api/words/difficult', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ words: testWords })
+                });
+                
+                const data = await response.json();
+                console.log('🔍 /api/words/difficult API 响应:', data);
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ API 调用成功！\n响应格式: ${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                console.error('❌ /api/words/difficult API 错误:', error);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ API 调用失败: ${error.message}`;
+            }
+        }
+
+        async function testFilterComplexAPI() {
+            const resultDiv = document.getElementById('apiResult');
+            resultDiv.textContent = '正在测试 /api/ai-words/filter-complex API...';
+            
+            try {
+                const response = await fetch('/api/ai-words/filter-complex', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ words: testWords })
+                });
+                
+                const data = await response.json();
+                console.log('🤖 /api/ai-words/filter-complex API 响应:', data);
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ API 调用成功！\n响应格式: ${JSON.stringify(data, null, 2)}`;
+            } catch (error) {
+                console.error('❌ /api/ai-words/filter-complex API 错误:', error);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ API 调用失败: ${error.message}`;
+            }
+        }
+
+        async function testWordDifficultyService() {
+            const resultDiv = document.getElementById('serviceResult');
+            resultDiv.textContent = '正在测试前端 WordDifficultyService...';
+            
+            try {
+                console.log('🧪 开始测试前端服务...');
+                
+                // 模拟前端服务调用（需要导入实际的服务）
+                // 这里我们直接调用 API 来模拟
+                const [difficultResponse, complexResponse] = await Promise.all([
+                    fetch('/api/words/difficult', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ words: testWords })
+                    }),
+                    fetch('/api/ai-words/filter-complex', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ words: testWords })
+                    })
+                ]);
+                
+                const difficultData = await difficultResponse.json();
+                const complexData = await complexResponse.json();
+                
+                console.log('📊 难度级别≥2的单词:', difficultData);
+                console.log('🤖 AI复杂单词:', complexData);
+                
+                // 模拟数据处理逻辑
+                const difficultWords = difficultData.data || [];
+                const complexWords = complexData.data || [];
+                
+                if (!Array.isArray(difficultWords)) {
+                    throw new Error('difficultWords 不是数组格式');
+                }
+                
+                console.log('✅ 数据格式验证通过');
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ 前端服务测试成功！
+难度级别≥2的单词数量: ${difficultWords.length}
+AI复杂单词数量: ${Array.isArray(complexWords) ? complexWords.length : '格式错误'}
+数据格式验证: 通过`;
+                
+            } catch (error) {
+                console.error('❌ 前端服务测试错误:', error);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 前端服务测试失败: ${error.message}`;
+            }
+        }
+
+        function clearConsole() {
+            console.clear();
+            console.log('🧹 控制台已清空，可以开始新的测试');
+        }
+
+        // 页面加载时自动运行测试
+        window.addEventListener('load', () => {
+            console.log('🚀 测试页面已加载，可以开始测试修复后的AI单词处理功能');
+            console.log('📝 测试单词列表:', testWords);
+        });
+    </script>
+</body>
+</html>

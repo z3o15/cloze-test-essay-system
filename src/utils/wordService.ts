@@ -1,5 +1,6 @@
-// 单词服务模块
-import httpClient from './httpClient'
+// 单词服务模块 - 简化版本，优先使用数据库，然后本地词典（移除段落-单词映射依赖）
+import { queryWordFromDatabase } from './translation'
+
 
 // 单词信息接口
 export interface WordInfo {
@@ -16,7 +17,7 @@ export interface Token {
 // 单词缓存
 const wordCache = new Map<string, WordInfo>()
 
-// 并发请求控制
+// 待处理请求缓存（避免重复请求）
 const pendingRequests = new Map<string, Promise<WordInfo | null>>()
 
 // 本地词典 - 包含常用词汇
@@ -28,6 +29,10 @@ const localDictionary: Record<string, WordInfo> = {
   'world': {
     phonetic: '/wɜːrld/',
     definitions: ['世界', '地球']
+  },
+  'beautiful': {
+    phonetic: '/ˈbjuːtɪfəl/',
+    definitions: ['美丽的', '漂亮的', '美好的']
   },
   'the': {
     phonetic: '/ðə/',
@@ -60,6 +65,26 @@ const localDictionary: Record<string, WordInfo> = {
   'that': {
     phonetic: '/ðæt/',
     definitions: ['那个', '指示代词']
+  },
+  'cat': {
+    phonetic: '/kæt/',
+    definitions: ['猫', '猫咪']
+  },
+  'sleeping': {
+    phonetic: '/ˈsliːpɪŋ/',
+    definitions: ['睡觉', '正在睡觉']
+  },
+  'test': {
+    phonetic: '/test/',
+    definitions: ['测试', '试验']
+  },
+  'love': {
+    phonetic: '/lʌv/',
+    definitions: ['爱', '喜欢']
+  },
+  'programming': {
+    phonetic: '/ˈproʊɡræmɪŋ/',
+    definitions: ['编程', '程序设计']
   }
 }
 
@@ -83,115 +108,52 @@ export const isAdvancedWord = (word: string): boolean => {
   return determineWordLevel(word) === 'advanced'
 }
 
-// 调用本地单词查询API（增强响应解析）
-const callLocalWordQueryAPI = async (word: string): Promise<WordInfo | null> => {
-  try {
-    const response = await httpClient.get(`/api/word-query?word=${encodeURIComponent(word)}`)
-    const raw = response.data
 
-    let apiData: any = null
 
-    // 1) 解析对象格式（直接或嵌套）
-    if (raw && typeof raw === 'object') {
-      if ('success' in raw && (raw as any).data) {
-        const inner: any = (raw as any).data
-        apiData = (inner && typeof inner === 'object' && 'success' in inner)
-          ? (inner.success ? inner.data : null)
-          : inner
-      } else {
-        apiData = raw
-      }
-    } else if (typeof raw === 'string') {
-      // 2) 字符串尝试JSON解析
-      try {
-        const parsed = JSON.parse(raw)
-        if (parsed && typeof parsed === 'object') {
-          if ('success' in parsed && (parsed as any).data) {
-            const inner: any = (parsed as any).data
-            apiData = (inner && typeof inner === 'object' && 'success' in inner)
-              ? (inner.success ? inner.data : null)
-              : inner
-          } else {
-            apiData = parsed
-          }
-        }
-      } catch {
-        // 非JSON字符串，无法解析
-        apiData = null
-      }
-    }
-
-    if (!apiData || typeof apiData !== 'object') {
-      return null
-    }
-
-    // 统一标准化字段
-    const phonetic = apiData.phonetic || ''
-    const definitions = Array.isArray(apiData.definitions)
-      ? apiData.definitions
-      : (typeof apiData.definitions === 'string' ? [apiData.definitions] : [])
-
-    if (!definitions || definitions.length === 0) {
-      return null
-    }
-
-    return { phonetic, definitions }
-  } catch (error) {
-    console.error('单词查询API调用失败:', error)
-    return null
-  }
-}
-
-// 内部查询函数
-const queryWordInternal = async (word: string): Promise<WordInfo | null> => {
+// 内部查询函数 - 优先从数据库查询，然后本地词典
+const queryWordInternal = async (word: string, contextText?: string): Promise<WordInfo | null> => {
   const normalizedWord = word.toLowerCase().trim()
   
-  // 检查本地词典
-  if (localDictionary[normalizedWord]) {
-    return localDictionary[normalizedWord]
-  }
-  
-  // 检查缓存
+  // 1. 检查缓存
   if (wordCache.has(normalizedWord)) {
     return wordCache.get(normalizedWord) || null
   }
   
-  // 检查是否有正在进行的请求
-  if (pendingRequests.has(normalizedWord)) {
-    return await pendingRequests.get(normalizedWord) || null
+  // 2. 检查本地词典（基本词汇）
+  if (localDictionary[normalizedWord]) {
+    return localDictionary[normalizedWord]
   }
   
-  // 创建新的请求
-  const requestPromise = callLocalWordQueryAPI(normalizedWord)
-  pendingRequests.set(normalizedWord, requestPromise)
-  
+  // 3. 优先从数据库查询已有翻译
   try {
-    const result = await requestPromise
-    
-    // 缓存结果
-    if (result) {
-      wordCache.set(normalizedWord, result)
+    const databaseResult = await queryWordFromDatabase(normalizedWord)
+    if (databaseResult) {
+      // 缓存结果
+      wordCache.set(normalizedWord, databaseResult)
+      return databaseResult
     }
-    
-    return result
-  } finally {
-    // 清理pending请求
-    pendingRequests.delete(normalizedWord)
+  } catch (error) {
+    console.warn(`数据库查询单词 "${normalizedWord}" 失败:`, error)
   }
+  
+  // 4. 如果都没有找到，返回null
+  return null
 }
 
 // 主要的单词查询函数
-export const queryWord = async (word: string): Promise<WordInfo | null> => {
+export const queryWord = async (word: string, contextText?: string): Promise<WordInfo | null> => {
   if (!word || typeof word !== 'string') {
     return null
   }
   
-  return await queryWordInternal(word)
+  return await queryWordInternal(word, contextText)
 }
 
 // 提取文本中的单词
 export const extractWords = (text: string): string[] => {
-  return text.match(/\b[a-zA-Z]+\b/g) || []
+  // 直接提取所有英文单词
+  const allWords = text.match(/\b[a-zA-Z]+\b/g) || []
+  return [...new Set(allWords.map(word => word.toLowerCase()))]
 }
 
 // 文本分词函数

@@ -1,5 +1,4 @@
 // 作文服务模块
-import httpClient from './httpClient'
 
 // 作文类型常量
 export const ESSAY_TYPES = {
@@ -12,23 +11,36 @@ export const ESSAY_TYPES = {
   OTHER: '其他'
 } as const
 
-// 作文接口
+// 作文接口 - 与后端API兼容
 export interface Essay {
   id: string
   title: string
   content: string
-  year: string
-  type: string
-  createTime: string
+  difficulty_level?: number
+  word_count?: number
+  language: string
+  category?: string
+  tags?: string[]
+  source_url?: string
+  author?: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  // 兼容旧版本字段
+  year?: string
+  type?: string
+  createTime?: string
 }
 
 // 验证作文数据
 const validateEssay = (essay: any): boolean => {
   return essay &&
+         typeof essay.id === 'string' &&
          typeof essay.title === 'string' &&
          typeof essay.content === 'string' &&
-         typeof essay.year === 'string' &&
-         typeof essay.type === 'string'
+         typeof essay.language === 'string' &&
+         typeof essay.is_active === 'boolean' &&
+         (typeof essay.created_at === 'string' || typeof essay.createTime === 'string')
 }
 
 // 格式化创建时间
@@ -78,11 +90,17 @@ export const extractTags = (content: string): string[] => {
 }
 
 // 处理作文数据
-export const processEssayData = (essay: Omit<Essay, 'id' | 'createTime'>): Essay => {
+export const processEssayData = (essay: Omit<Essay, 'id' | 'created_at' | 'updated_at'>): Essay => {
+  const now = new Date().toISOString()
   return {
     ...essay,
     id: generateEssayId(),
-    createTime: formatCreateTime(new Date())
+    language: essay.language || 'en',
+    is_active: essay.is_active !== undefined ? essay.is_active : true,
+    created_at: now,
+    updated_at: now,
+    // 兼容旧版本
+    createTime: now
   }
 }
 
@@ -91,30 +109,7 @@ export const generateEssayId = (): string => {
   return `essay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 }
 
-// 保存作文到后端
-export const saveEssayToBackend = async (essay: Omit<Essay, 'id' | 'createTime'>): Promise<Essay> => {
-  if (!validateEssay(essay)) {
-    throw new Error('作文数据格式不正确')
-  }
 
-  try {
-    const processedEssay = processEssayData(essay)
-    
-    const response = await httpClient.post('/api/essays', processedEssay)
-    
-    if (response.data && response.data.id) {
-      return response.data
-    } else {
-      // 如果后端没有返回完整数据，返回处理后的数据
-      return processedEssay
-    }
-  } catch (error: any) {
-    console.error('保存作文到后端失败:', error)
-    
-    // 如果后端保存失败，仍然返回处理后的数据（本地保存）
-    return processEssayData(essay)
-  }
-}
 
 // 保存作文到本地存储
 export const saveEssayToLocal = (essay: Essay): void => {
@@ -138,68 +133,37 @@ export const getLocalEssays = (): Essay[] => {
   }
 }
 
-// 从后端获取作文列表
-export const fetchEssaysFromBackend = async (): Promise<Essay[]> => {
-  try {
-    const response = await httpClient.get('/api/essays')
-    
-    if (response.data && Array.isArray(response.data)) {
-      return response.data.filter(validateEssay)
-    } else {
-      return []
-    }
-  } catch (error) {
-    console.error('从后端获取作文失败:', error)
-    return []
-  }
+// 根据ID获取作文
+export const getEssayById = (id: string): Essay | null => {
+  const localEssays = getLocalEssays()
+  return localEssays.find(essay => essay.id === id) || null
 }
 
+
+
 // 删除作文
-export const deleteEssay = async (id: string): Promise<boolean> => {
+export const deleteEssay = (id: string): boolean => {
   try {
-    // 尝试从后端删除
-    await httpClient.delete(`/api/essays/${id}`)
-    
-    // 同时从本地删除
     const essays = getLocalEssays()
     const filteredEssays = essays.filter(essay => essay.id !== id)
     localStorage.setItem('essays', JSON.stringify(filteredEssays))
-    
     return true
   } catch (error) {
     console.error('删除作文失败:', error)
-    
-    // 如果后端删除失败，仍然尝试本地删除
-    try {
-      const essays = getLocalEssays()
-      const filteredEssays = essays.filter(essay => essay.id !== id)
-      localStorage.setItem('essays', JSON.stringify(filteredEssays))
-      return true
-    } catch (localError) {
-      console.error('本地删除作文失败:', localError)
-      return false
-    }
+    return false
   }
 }
 
 // 更新作文
-export const updateEssay = async (id: string, updates: Partial<Essay>): Promise<Essay | null> => {
+export const updateEssay = (id: string, updates: Partial<Essay>): Essay | null => {
   try {
-    // 尝试更新后端
-    const response = await httpClient.put(`/api/essays/${id}`, updates)
-    
-    if (response.data) {
-      // 同时更新本地
-      const essays = getLocalEssays()
-      const index = essays.findIndex(essay => essay.id === id)
-      if (index !== -1) {
-        essays[index] = { ...essays[index], ...updates }
-        localStorage.setItem('essays', JSON.stringify(essays))
-      }
-      
-      return response.data
+    const essays = getLocalEssays()
+    const index = essays.findIndex(essay => essay.id === id)
+    if (index !== -1) {
+      essays[index] = { ...essays[index], ...updates, updated_at: new Date().toISOString() }
+      localStorage.setItem('essays', JSON.stringify(essays))
+      return essays[index]
     }
-    
     return null
   } catch (error) {
     console.error('更新作文失败:', error)
@@ -208,28 +172,34 @@ export const updateEssay = async (id: string, updates: Partial<Essay>): Promise<
 }
 
 // 搜索作文
-export const searchEssays = async (query: string): Promise<Essay[]> => {
-  try {
-    // 先尝试后端搜索
-    const response = await httpClient.get(`/api/essays/search?q=${encodeURIComponent(query)}`)
-    
-    if (response.data && Array.isArray(response.data)) {
-      return response.data.filter(validateEssay)
-    }
-  } catch (error) {
-    console.error('后端搜索失败，使用本地搜索:', error)
-  }
-  
-  // 后端搜索失败时使用本地搜索
+export const searchEssays = (query: string, filters?: {
+  difficulty_level?: number
+  language?: string
+  category?: string
+  tags?: string[]
+}): Essay[] => {
   const essays = getLocalEssays()
-  const lowerQuery = query.toLowerCase()
-  
-  return essays.filter(essay => 
-    essay.title.toLowerCase().includes(lowerQuery) ||
-    essay.content.toLowerCase().includes(lowerQuery) ||
-    essay.type.toLowerCase().includes(lowerQuery) ||
-    essay.year.includes(query)
-  )
+  return essays.filter(essay => {
+    // 文本搜索
+    const matchesQuery = essay.title.toLowerCase().includes(query.toLowerCase()) ||
+                        essay.content.toLowerCase().includes(query.toLowerCase())
+    
+    if (!matchesQuery) return false
+    
+    // 应用过滤器
+    if (filters) {
+      if (filters.difficulty_level && essay.difficulty_level !== filters.difficulty_level) return false
+      if (filters.language && essay.language !== filters.language) return false
+      if (filters.category && essay.category !== filters.category) return false
+      if (filters.tags && filters.tags.length > 0) {
+        const essayTags = essay.tags || []
+        const hasMatchingTag = filters.tags.some(tag => essayTags.includes(tag))
+        if (!hasMatchingTag) return false
+      }
+    }
+    
+    return true
+  })
 }
 
 // 导出作文数据

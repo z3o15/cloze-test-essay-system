@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import type { Essay } from '../utils/essayService'
+import { processEssayAsync } from '../utils/backendEssayService'
 
 // 重新导出Essay类型以保持向后兼容
 export type { Essay }
@@ -7,8 +8,8 @@ export type { Essay }
 // 状态管理接口
 interface Store {
   essays: Essay[]
-  addEssay: (essay: Omit<Essay, 'id' | 'createTime'>) => void
-  deleteEssay: (id: string) => void
+  addEssay: (essay: Omit<Essay, 'id' | 'createTime'>) => Promise<void>
+  deleteEssay: (id: string) => Promise<void>
   getEssay: (id: string) => Essay | undefined
   loadEssays: () => void
   saveEssays: () => void
@@ -58,7 +59,7 @@ const createStore = (): Store => {
   }
 
   // 添加作文
-  const addEssay = (essay: Omit<Essay, 'id' | 'createTime'>) => {
+  const addEssay = async (essay: Omit<Essay, 'id' | 'createTime'>) => {
     // 检查是否已存在内容相同的作文（去重逻辑）
     const contentNormalized = essay.content.trim().replace(/\s+/g, ' ')
     const isDuplicate = state.essays.some(existingEssay => {
@@ -81,12 +82,19 @@ const createStore = (): Store => {
     
     // 保存到localStorage
     saveEssays()
+    
+    // 异步处理作文：调用后端API翻译段落并提取单词保存到数据库
+    // 这个过程不会阻塞用户界面
+    processEssayAsync(essay.content, essay.title).catch(error => {
+      console.error('作文处理失败:', error)
+      // 这里可以添加用户通知逻辑，但不影响作文保存
+    })
   }
 
   // 删除作文
-  const deleteEssay = (id: string) => {
-    const index = state.essays.findIndex(e => e.id === id)
-    if (index > -1) {
+  const deleteEssay = async (id: string) => {
+    const index = state.essays.findIndex(essay => essay.id === id)
+    if (index !== -1) {
       state.essays.splice(index, 1)
       saveEssays()
     }
@@ -97,18 +105,17 @@ const createStore = (): Store => {
     return state.essays.find(e => e.id === id)
   }
 
+
+
   // 返回状态和方法，确保essays的响应式引用正确传递
   return {
-    // 使用getter函数来获取最新的essays数组，确保组件总是能访问到最新状态
-    get essays() {
-      return state.essays;
-    },
+    essays: state.essays,
     addEssay,
     deleteEssay,
     getEssay,
     loadEssays,
     saveEssays
-  } as Store
+  }
 }
 
 // 创建store实例

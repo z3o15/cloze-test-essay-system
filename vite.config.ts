@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import dns from 'node:dns'
+import { resolve } from 'path'
 
 // 修复localhost解析问题
 dns.setDefaultResultOrder('verbatim')
@@ -8,6 +9,11 @@ dns.setDefaultResultOrder('verbatim')
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src')
+    }
+  },
   base: './',
   server: {
     host: '127.0.0.1',
@@ -20,9 +26,8 @@ export default defineConfig({
     proxy: {
       // API代理配置
       '/api': {
-        target: 'http://localhost:3000',
-        // 在本地开发时，Vercel Serverless Functions无法直接访问
-        // 这里使用rewrite将请求重定向到实际的API目录
+        target: 'http://localhost:8080',
+        // 代理到后端Express服务器
         rewrite: (path) => path.replace(/^\/api/, '/api'),
         changeOrigin: true
       }

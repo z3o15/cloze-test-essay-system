@@ -1,17 +1,15 @@
 <template>
   <div class="record-container">
     <!-- 页面头部 -->
-    <div class="page-header">
-      <div class="header-content">
-        <div class="header-text">
-          <h1 class="page-title">录入作文</h1>
-          <p class="page-subtitle">Record Essay</p>
-        </div>
-        <div class="header-actions">
-          <ThemeToggle />
-        </div>
-      </div>
-    </div>
+    <UnifiedHeader 
+      type="form"
+      title="录入作文"
+      subtitle="Record Essay"
+    >
+      <template #actions>
+        <ThemeToggle />
+      </template>
+    </UnifiedHeader>
     
     <!-- 年份选择 -->
     <div class="form-group">
@@ -78,6 +76,7 @@ import { reactive } from 'vue'
 import { useRouter } from 'vue-router'
 // 移除未使用的导入
 import { useStore } from '../store'
+import UnifiedHeader from '../components/common/UnifiedHeader.vue'
 import ThemeToggle from '../components/ui/ThemeToggle.vue'
 
 interface FormData {
@@ -127,7 +126,7 @@ const handlePaste = (event: ClipboardEvent) => {
 
 
 // 提交表单
-const submitForm = () => {
+const submitForm = async () => {
   // 验证表单
   if (!formData.title.trim() || !formData.content.trim()) {
     alert('请填写标题和内容')
@@ -143,10 +142,8 @@ const submitForm = () => {
       content: formData.content
     }
     
-    // 调用store的addEssay方法
-    store.addEssay(essayToAdd)
-    
-    // 不需要额外调用loadEssays()，因为addEssay方法已经更新了store状态并保存到localStorage
+    // 调用store的addEssay方法（等待异步操作完成）
+    await store.addEssay(essayToAdd)
     
     // 获取刚刚添加的作文（应该是数组中的第一个元素）
     if (store.essays && store.essays.length > 0) {
@@ -166,6 +163,7 @@ const submitForm = () => {
     if (error instanceof Error && error.message.includes('作文内容重复')) {
       alert('提交失败：作文内容重复，请检查是否已添加过相同内容的作文')
     } else {
+      console.error('作文提交失败:', error)
       alert('作文提交失败，请重试')
     }
   }
@@ -173,49 +171,6 @@ const submitForm = () => {
 </script>
 
 <style scoped>
-/* 页面头部样式 */
-.page-header {
-  background: linear-gradient(135deg, var(--color-primary-600) 0%, var(--color-primary) 100%);
-  padding: 24px 20px;
-  margin: -32px -24px 32px -24px;
-  border-radius: 0 0 22px 22px;
-}
-
-.header-content {
-  max-width: 720px;
-  margin: 0 auto;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 20px;
-}
-
-.header-text {
-  flex: 1;
-}
-
-.header-actions {
-  flex-shrink: 0;
-}
-
-.page-title {
-  font-size: 28px;
-  font-weight: 700;
-  color: white;
-  margin: 0 0 4px 0;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
-}
-
-.page-subtitle {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.8);
-  margin: 0;
-  font-weight: 400;
-  letter-spacing: -0.01em;
-}
-
 /* 容器样式 - Apple风格 */
 .record-container {
   position: relative;

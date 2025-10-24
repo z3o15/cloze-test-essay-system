@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>调试难度级别功能</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .word {
+            display: inline-block;
+            margin: 5px;
+            padding: 5px 10px;
+            background: #f0f0f0;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .word:hover {
+            background: #e0e0e0;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 3px;
+            white-space: pre-wrap;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 调试难度级别功能</h1>
+    
+    <div class="test-section">
+        <h2>测试文本</h2>
+        <p>The revolutionary technology has enhanced our daily life. This complex system provides simple solutions for difficult problems.</p>
+        
+        <h3>单词列表</h3>
+        <div id="words">
+            <span class="word" onclick="testSingleWord('enhanced')">enhanced</span>
+            <span class="word" onclick="testSingleWord('revolutionary')">revolutionary</span>
+            <span class="word" onclick="testSingleWord('complex')">complex</span>
+            <span class="word" onclick="testSingleWord('technology')">technology</span>
+            <span class="word" onclick="testSingleWord('problems')">problems</span>
+            <span class="word" onclick="testSingleWord('simple')">simple</span>
+            <span class="word" onclick="testSingleWord('daily')">daily</span>
+            <span class="word" onclick="testSingleWord('life')">life</span>
+            <span class="word" onclick="testSingleWord('system')">system</span>
+            <span class="word" onclick="testSingleWord('provides')">provides</span>
+            <span class="word" onclick="testSingleWord('solutions')">solutions</span>
+            <span class="word" onclick="testSingleWord('difficult')">difficult</span>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>API测试</h2>
+        <button onclick="testDifficultWordsAPI()">测试 /api/words/difficult API</button>
+        <button onclick="testComplexWordsAPI()">测试 /api/ai-words/filter-complex API</button>
+        <div id="apiResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>前端服务测试</h2>
+        <button onclick="testWordDifficultyService()">测试 WordDifficultyService</button>
+        <div id="serviceResult" class="result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8080';
+        
+        async function testSingleWord(word) {
+            try {
+                const response = await fetch(`${API_BASE}/api/words/difficult`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ words: [word] })
+                });
+                
+                const result = await response.json();
+                console.log(`单词 "${word}" 测试结果:`, result);
+                
+                if (result.data && result.data.length > 0) {
+                    alert(`单词 "${word}" 难度级别: ${result.data[0].difficulty_level}\n翻译: ${result.data[0].translation}`);
+                } else {
+                    alert(`单词 "${word}" 不在难度级别≥2的列表中`);
+                }
+            } catch (error) {
+                console.error('测试失败:', error);
+                alert('测试失败: ' + error.message);
+            }
+        }
+        
+        async function testDifficultWordsAPI() {
+            const words = ['enhanced', 'revolutionary', 'complex', 'technology', 'problems', 'simple', 'daily', 'life', 'system', 'provides', 'solutions', 'difficult'];
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/words/difficult`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ words })
+                });
+                
+                const result = await response.json();
+                document.getElementById('apiResult').textContent = JSON.stringify(result, null, 2);
+                console.log('API测试结果:', result);
+            } catch (error) {
+                document.getElementById('apiResult').textContent = '错误: ' + error.message;
+                console.error('API测试失败:', error);
+            }
+        }
+        
+        async function testComplexWordsAPI() {
+            const words = ['enhanced', 'revolutionary', 'complex', 'technology', 'problems', 'simple', 'daily', 'life', 'system', 'provides', 'solutions', 'difficult'];
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/ai-words/filter-complex`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ words })
+                });
+                
+                const result = await response.json();
+                document.getElementById('apiResult').textContent = JSON.stringify(result, null, 2);
+                console.log('复杂单词API测试结果:', result);
+            } catch (error) {
+                document.getElementById('apiResult').textContent = '错误: ' + error.message;
+                console.error('复杂单词API测试失败:', error);
+            }
+        }
+        
+        async function testWordDifficultyService() {
+            // 这个需要在主应用中测试，因为需要导入模块
+            document.getElementById('serviceResult').textContent = '请在主应用中打开控制台查看 WordDifficultyService 的测试结果';
+            
+            // 模拟前端服务调用
+            const words = ['enhanced', 'revolutionary', 'complex', 'technology', 'problems', 'simple'];
+            console.log('模拟前端服务调用，单词列表:', words);
+            
+            try {
+                // 测试难度级别API
+                const response = await fetch(`${API_BASE}/api/words/difficult`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ words })
+                });
+                
+                const result = await response.json();
+                console.log('前端服务模拟结果:', result);
+                
+                document.getElementById('serviceResult').textContent = `找到 ${result.data.length} 个难度级别≥2的单词:\n` + 
+                    result.data.map(w => `${w.word} (级别${w.difficulty_level}): ${w.translation}`).join('\n');
+                    
+            } catch (error) {
+                document.getElementById('serviceResult').textContent = '错误: ' + error.message;
+                console.error('前端服务测试失败:', error);
+            }
+        }
+        
+        // 页面加载时自动测试
+        window.onload = function() {
+            console.log('🔍 调试页面已加载，可以开始测试');
+            console.log('点击单词可以测试单个单词的难度级别');
+            console.log('点击按钮可以测试批量API');
+        };
+    </script>
+</body>
+</html>
