@@ -1,32 +1,38 @@
-// 数据库服务模块 - 用于保存和查询翻译结果
+// 数据库服务模块 - 用于保存和查询单词释义
 import httpClient from './httpClient'
 import type { WordInfo } from './wordService'
 import { isValidWord } from './wordValidator'
 import { API_URLS } from '../config/api'
 
-// 保存单词翻译到数据库
-export const saveTranslationToDatabase = async (word: string, translation: string): Promise<boolean> => {
+// 保存单词释义到数据库
+export const saveMeaningToDatabase = async (word: string, meaning: string): Promise<boolean> => {
   try {
     // 使用单词验证器检查单词有效性
     const trimmedWord = word.trim().toLowerCase()
     
     // 检查是否为有效单词
     if (!isValidWord(trimmedWord)) {
-  
+      console.warn(`❌ 无效单词，跳过保存: ${word}`)
+      return false
+    }
+    
+    // 验证释义内容
+    if (!meaning || typeof meaning !== 'string' || meaning.trim().length === 0) {
+      console.warn(`❌ 无效释义内容，跳过保存: ${word}`)
       return false
     }
     
     // 先检查单词是否已存在
     const existingWord = await queryWordFromDatabase(trimmedWord)
     if (existingWord) {
-
+      console.log(`单词已存在: ${trimmedWord}`)
       return true
     }
     
     // 调用后端API保存单词
-    const response = await httpClient.post(API_URLS.words.query(), {
+    const response = await httpClient.post(API_URLS.words.create(), {
       word: trimmedWord,
-      translation: translation.trim(),
+      meaning: meaning.trim(),
       pronunciation: '' // 暂时为空，后续可以扩展
     })
     
@@ -47,12 +53,12 @@ export const saveTranslationToDatabase = async (word: string, translation: strin
   }
 }
 
-// 批量保存单词翻译
-export const saveTranslationsBatch = async (translations: Array<{word: string, translation: string}>): Promise<number> => {
-  let savedCount = 0
+// 批量保存单词释义
+export const saveMeaningsBatch = async (meanings: Array<{word: string, meaning: string}>): Promise<number> => {
+  let successCount = 0
   
-  for (const item of translations) {
-    const success = await saveTranslationToDatabase(item.word, item.translation)
+  for (const item of meanings) {
+    const success = await saveMeaningToDatabase(item.word, item.meaning)
     if (success) {
       savedCount++
     }
@@ -64,7 +70,7 @@ export const saveTranslationsBatch = async (translations: Array<{word: string, t
   return savedCount
 }
 
-// 从数据库查询单词翻译
+// 从数据库查询单词释义
 export const queryWordFromDatabase = async (word: string): Promise<WordInfo | null> => {
   try {
     // 使用单词验证器检查单词有效性
@@ -81,11 +87,17 @@ export const queryWordFromDatabase = async (word: string): Promise<WordInfo | nu
     if (response.data && response.data.code === 'SUCCESS' && response.data.data) {
       const wordData = response.data.data
       
+      // 调试日志已移除
+      
       // 转换为WordInfo格式
       const wordInfo: WordInfo = {
         phonetic: wordData.pronunciation || '',
-        definitions: wordData.translation ? [wordData.translation] : []
+        definitions: wordData.translation ? [wordData.translation] : [],
+        difficultyLevel: wordData.difficulty_level || undefined,
+        partOfSpeech: wordData.part_of_speech || undefined
       }
+      
+      // 调试日志已移除
       
       return wordInfo
     } else {

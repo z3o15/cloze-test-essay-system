@@ -1,315 +1,263 @@
 import { logger } from '@/utils/logger';
-import { TencentTranslationService } from './tencentTranslationService';
 import { VolcanoAIService } from './volcanoAIService';
 import { WordRepository } from '@/repositories/wordRepository';
-import { testConnection } from '@/config/database';
 
 /**
- * 简化的AI单词处理服务
- * 实现清晰的四步流程：查数据库 → 腾讯翻译API → 火山大模型判断 → 存数据库
+ * 简化的单词服务
+ * 提供基本的单词处理功能，使用火山AI进行单词复杂度判断
  */
-
-// 单词信息接口
-export interface WordInfo {
-  word: string;
-  translation?: string;
-  pronunciation?: string;
-  partOfSpeech?: string;
-  difficultyLevel?: number;
-  definition?: string;
-}
-
-// 批量处理结果接口
-export interface BatchResult {
-  words: WordInfo[];
-  complexWords: string[]; // 难度 > 3 的单词
-  stats: {
-    total: number;
-    fromDatabase: number;
-    fromAPI: number;
-    complexCount: number;
-  };
-}
-
 export class SimplifiedWordService {
-  private static wordRepository = new WordRepository();
-
+  
   /**
-   * 核心四步流程：处理单个单词
-   * @param word 单词
-   * @returns 完整的单词信息
+   * 批量处理单词（完整流程：AI分析 + 数据库保存）
    */
-  static async processWord(word: string): Promise<WordInfo> {
-    const normalizedWord = word.toLowerCase().trim();
-    
+  static async batchProcessWords(words: string[]): Promise<any> {
     try {
-      logger.info(`🔄 开始处理单词: ${normalizedWord}`);
-
-      // 第一步：查数据库
-      const dbResult = await this.step1_CheckDatabase(normalizedWord);
-      if (dbResult) {
-        logger.info(`✅ 步骤1: 从数据库获取 ${normalizedWord}`);
-        return dbResult;
-      }
-
-      // 第二步：调用腾讯翻译官API
-      logger.info(`🌐 步骤2: 调用腾讯翻译API - ${normalizedWord}`);
-      const tencentResult = await this.step2_CallTencentAPI(normalizedWord);
-
-      // 第三步：火山大模型判断难度
-      logger.info(`🤖 步骤3: 火山AI判断难度 - ${normalizedWord}`);
-      const difficultyLevel = await this.step3_CallVolcanoAI(normalizedWord, tencentResult);
-
-      // 第四步：存数据库
-      const finalResult: WordInfo = {
-        ...tencentResult,
-        difficultyLevel
+      logger.info(`🚀 开始完整批量处理流程: ${words.length}个单词 - ${words.join(', ')}`);
+      
+      // 步骤1: 使用火山AI进行批量分析（只调用一次）
+      logger.info('🤖 步骤1: 调用火山AI进行批量分析...');
+      const analysisResults = await VolcanoAIService.analyzeWordComplexity(words);
+      
+      // 步骤2: 基于分析结果过滤复杂单词（不再重复调用AI）
+      logger.info('🔍 步骤2: 基于分析结果过滤复杂单词...');
+      const complexWords = analysisResults.filter(result => (result.difficultyLevel || 1) >= 3);
+      const simpleWords = analysisResults.filter(result => (result.difficultyLevel || 1) < 3);
+      
+      const filterResult = {
+        complexWords: complexWords.map(r => r.word),
+        simpleWords: simpleWords.map(r => r.word),
+        total: words.length,
+        complexCount: complexWords.length,
+        wordDetails: analysisResults.map(result => ({
+          word: result.word,
+          difficultyLevel: result.difficultyLevel || 1,
+          translations: result.translations || [],
+          pronunciation: result.pronunciation || '',
+          partOfSpeech: result.partOfSpeech || ''
+        }))
       };
       
-      logger.info(`💾 步骤4: 存储到数据库 - ${normalizedWord} (难度: ${difficultyLevel})`);
-      await this.step4_SaveToDatabase(finalResult);
+      // 步骤3: 准备数据库保存数据（保存所有单词）
+      const wordsToSave = analysisResults.map(result => ({
+        word: result.word.toLowerCase(),
+        pronunciation: result.pronunciation || '',
+        translation: result.translations?.[0] || result.translation || '暂无释义',
+        definition: result.translations?.join('; ') || result.translation || '',
+        part_of_speech: result.partOfSpeech || '',
+        difficulty_level: result.difficultyLevel || 1
+      }));
+      
+      logger.info(`💾 步骤3: 准备保存${wordsToSave.length}个单词到数据库（所有单词）...`);
+      
+      // 步骤4: 批量保存到数据库
+      let savedWords: any[] = [];
+      if (wordsToSave.length > 0) {
+        try {
+          const wordRepository = new WordRepository();
+          savedWords = await wordRepository.batchCreateComplete(wordsToSave);
+          logger.info(`✅ 步骤4: 成功保存${savedWords.length}个单词到数据库`);
+        } catch (dbError) {
+          logger.warn('⚠️ 数据库保存失败，但AI分析成功:', dbError);
+          // 数据库保存失败不影响返回AI分析结果
+        }
+      } else {
+        logger.info('ℹ️ 步骤4: 无单词需要保存');
+      }
+      
+      // 构建详细的处理结果
+      const processedWords = analysisResults.map(result => ({
+        word: result.word,
+        isComplex: result.isComplex,
+        difficultyLevel: result.difficultyLevel || 1,
+        translations: result.translations || [],
+        pronunciation: result.pronunciation || '',
+        partOfSpeech: result.partOfSpeech || '',
+        needsDisplay: (result.difficultyLevel || 1) >= 3,
+        processed: true,
+        savedToDatabase: wordsToSave.some(w => w.word === result.word.toLowerCase()),
+        timestamp: new Date().toISOString()
+      }));
+      
+      // 构建完整的复杂单词对象数组（前端需要的格式）
+      const complexWordObjects = complexWords.map(result => ({
+        word: result.word,
+        difficulty_level: result.difficultyLevel || 2,
+        translation: result.translations?.[0] || result.translation || '暂无释义',
+        pronunciation: result.pronunciation || '',
+        part_of_speech: result.partOfSpeech || '',
+        isComplex: true,
+        needsDisplay: true
+      }));
 
-      logger.info(`✅ 完成处理: ${normalizedWord} - 难度等级: ${difficultyLevel}`);
-      return finalResult;
-
+      const result = {
+        success: true,
+        complexWords: complexWordObjects, // 返回完整的单词对象数组
+        stats: {
+          total: words.length,
+          complexCount: complexWords.length,
+          simpleCount: simpleWords.length,
+          processedCount: processedWords.length,
+          savedToDbCount: savedWords.length,
+          aiAnalyzedCount: analysisResults.length
+        },
+        wordDetails: processedWords,
+        filterResult: filterResult.wordDetails,
+        databaseSaveResult: {
+          attempted: wordsToSave.length,
+          successful: savedWords.length,
+          failed: wordsToSave.length - savedWords.length
+        }
+      };
+      
+      logger.info(`🎯 完整批量处理完成: AI分析${analysisResults.length}个，保存${savedWords.length}个到数据库`);
+      return result;
+      
     } catch (error) {
-      logger.error(`❌ 处理单词失败: ${normalizedWord}`, error);
+      logger.error('❌ 批量处理单词失败:', error);
       throw error;
     }
   }
 
   /**
-   * 批量处理单词
-   * @param words 单词数组
-   * @returns 批量处理结果
+   * 检查是否需要显示智能提示
    */
-  static async batchProcessWords(words: string[]): Promise<BatchResult> {
-    if (!words || words.length === 0) {
-      return {
-        words: [],
-        complexWords: [],
-        stats: { total: 0, fromDatabase: 0, fromAPI: 0, complexCount: 0 }
-      };
-    }
-
-    logger.info(`🔄 开始批量处理 ${words.length} 个单词`);
-    
-    const results: WordInfo[] = [];
-    const complexWords: string[] = [];
-    let fromDatabase = 0;
-    let fromAPI = 0;
-
-    for (const word of words) {
-      try {
-        const result = await this.processWord(word);
-        results.push(result);
-
-        // 统计来源
-        const dbResult = await this.step1_CheckDatabase(word.toLowerCase().trim());
-        if (dbResult) {
-          fromDatabase++;
-        } else {
-          fromAPI++;
-        }
-
-        // 收集难度 >= 2 的单词
-        if (result.difficultyLevel && result.difficultyLevel >= 2) {
-          complexWords.push(result.word);
-        }
-      } catch (error) {
-        logger.error(`批量处理中单词失败: ${word}`, error);
-      }
-    }
-
-    const stats = {
-      total: words.length,
-      fromDatabase,
-      fromAPI,
-      complexCount: complexWords.length
-    };
-
-    logger.info(`✅ 批量处理完成: ${JSON.stringify(stats)}`);
-    
-    return {
-      words: results,
-      complexWords,
-      stats
-    };
-  }
-
-  /**
-   * 过滤复杂单词（难度 > 3）
-   * @param words 单词数组
-   * @returns 复杂单词信息数组
-   */
-  static async filterComplexWords(words: string[]): Promise<CompleteWordInfo[]> {
-    logger.info(`🔍 开始过滤复杂单词，输入: ${words.length} 个`);
-    
-    const batchResult = await this.batchProcessWords(words);
-    
-    // 过滤出难度 > 3 的完整单词信息
-    const complexWordInfos = batchResult.words.filter(word => 
-      word.difficultyLevel && word.difficultyLevel >= 2
-    );
-    
-    logger.info(`✅ 过滤完成，找到 ${complexWordInfos.length} 个复杂单词`);
-    return complexWordInfos;
-  }
-
-  /**
-   * 检查单词是否需要显示翻译（难度 > 3）
-   * @param word 单词
-   * @returns 是否需要显示翻译
-   */
-  static async shouldShowTranslation(word: string): Promise<boolean> {
-    const wordInfo = await this.processWord(word);
-    const needsTranslation = wordInfo.difficultyLevel ? wordInfo.difficultyLevel >= 2 : false;
-    
-    logger.info(`🔍 翻译检查: ${word} - 难度: ${wordInfo.difficultyLevel} - 需要翻译: ${needsTranslation}`);
-    return needsTranslation;
-  }
-
-  // ==================== 私有方法：四个步骤的具体实现 ====================
-
-  /**
-   * 第一步：查数据库
-   */
-  private static async step1_CheckDatabase(word: string): Promise<WordInfo | null> {
+  static async checkDisplayNeeded(word: string): Promise<any> {
     try {
-      const dbWord = await this.wordRepository.findByWord(word);
-      if (dbWord && dbWord.translation && dbWord.difficultyLevel) {
+      logger.info(`检查单词是否需要显示: ${word}`);
+      
+      // 使用火山AI判断单词复杂度
+      const result = await VolcanoAIService.checkDisplayNeeded(word);
+      
+      return {
+        success: true,
+        data: result
+      };
+    } catch (error) {
+      logger.error('检查显示需求失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 过滤复杂单词
+   */
+  static async filterComplexWords(words: string[]): Promise<any> {
+    try {
+      logger.info(`过滤复杂单词: ${words.join(', ')}`);
+      
+      // 使用火山AI判断单词复杂度
+      const result = await VolcanoAIService.filterComplexWords(words);
+      
+      return {
+        success: true,
+        data: result
+      };
+    } catch (error) {
+      logger.error('过滤复杂单词失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 处理单个单词（完整流程：AI分析 + 数据库存储）
+   */
+  static async processSingleWord(word: string): Promise<any> {
+    try {
+      logger.info(`🚀 开始处理单个单词: ${word}`);
+      
+      // 标准化单词
+      const normalizedWord = word.toLowerCase().trim();
+      
+      // 先检查数据库是否已存在
+      const wordRepository = new WordRepository();
+      const existingWord = await wordRepository.findByWord(normalizedWord);
+      
+      if (existingWord) {
+        logger.info(`✅ 单词 "${normalizedWord}" 已存在于数据库中`);
         return {
-          word: dbWord.english,
-          translation: dbWord.chinese,
-          pronunciation: dbWord.phonetic,
-          partOfSpeech: dbWord.partOfSpeech,
-          difficultyLevel: dbWord.difficultyLevel,
-          definition: dbWord.definition
+          success: true,
+          data: {
+            word: normalizedWord,
+            pronunciation: existingWord.pronunciation || '',
+            translation: existingWord.translation || '',
+            translations: existingWord.translation ? [existingWord.translation] : [],
+            partOfSpeech: existingWord.part_of_speech || '',
+            difficultyLevel: existingWord.difficulty_level || 1,
+            isComplex: (existingWord.difficulty_level || 1) >= 3,
+            processed: true,
+            fromDatabase: true,
+            timestamp: new Date().toISOString()
+          }
         };
       }
-      return null;
-    } catch (error) {
-      logger.error(`数据库查询失败: ${word}`, error);
-      return null;
-    }
-  }
-
-  /**
-   * 第二步：调用腾讯翻译官API
-   */
-  private static async step2_CallTencentAPI(word: string): Promise<WordInfo> {
-    try {
-      const result = await TencentTranslationService.translateWord(word);
-      return {
-        word,
-        translation: result.translation,
-        pronunciation: result.pronunciation,
-        partOfSpeech: result.partOfSpeech,
-        definition: result.definition
-      };
-    } catch (error) {
-      logger.error(`腾讯翻译API调用失败: ${word}`, error);
-      // 返回基础信息
-      return {
-        word,
-        translation: `${word}的翻译`, // 占位符
-        pronunciation: '',
-        partOfSpeech: '',
-        definition: ''
-      };
-    }
-  }
-
-  /**
-   * 第三步：火山大模型判断难度
-   */
-  private static async step3_CallVolcanoAI(word: string, wordInfo: WordInfo): Promise<number> {
-    try {
-      const aiResult = await VolcanoAIService.judgeWordDifficulty({
-        word,
-        translation: wordInfo.translation,
-        pronunciation: wordInfo.pronunciation,
-        partOfSpeech: wordInfo.partOfSpeech
-      });
       
-      return aiResult.difficultyLevel || this.fallbackDifficultyJudgment(word);
+      // 数据库中不存在，使用AI分析
+      logger.info(`🤖 单词 "${normalizedWord}" 不在数据库中，调用AI分析...`);
+      const analysisResults = await VolcanoAIService.analyzeWordComplexity([normalizedWord]);
+      
+      if (!analysisResults || analysisResults.length === 0) {
+        throw new Error('AI分析失败，未返回结果');
+      }
+      
+      const result = analysisResults[0];
+      
+      // 保存所有单词到数据库
+       const wordToSave = {
+         word: normalizedWord,
+         pronunciation: result.pronunciation || '',
+         translation: result.translations?.[0] || result.translation || '暂无释义',
+         definition: result.translations?.join('; ') || result.translation || '',
+         part_of_speech: result.partOfSpeech || '',
+         difficulty_level: result.difficultyLevel || 1
+       };
+       
+       try {
+         await wordRepository.createComplete(wordToSave);
+         logger.info(`💾 单词 "${normalizedWord}" 已保存到数据库`);
+       } catch (dbError) {
+         logger.warn('⚠️ 数据库保存失败，但AI分析成功:', dbError);
+       }
+      
+      return {
+        success: true,
+        data: {
+          word: normalizedWord,
+          pronunciation: result.pronunciation || '',
+          translation: result.translations?.[0] || result.translation || '暂无释义',
+          translations: result.translations || [result.translation || '暂无释义'],
+          partOfSpeech: result.partOfSpeech || '',
+          difficultyLevel: result.difficultyLevel || 1,
+          isComplex: (result.difficultyLevel || 1) >= 2,
+          processed: true,
+          fromDatabase: false,
+          savedToDatabase: true,
+          timestamp: new Date().toISOString()
+        }
+      };
     } catch (error) {
-      logger.error(`火山AI判断失败: ${word}`, error);
-      // 使用备用规则判断
-      return this.fallbackDifficultyJudgment(word);
+      logger.error('处理单个单词失败:', error);
+      throw error;
     }
-  }
-
-  /**
-   * 第四步：存数据库
-   */
-  private static async step4_SaveToDatabase(wordInfo: WordInfo): Promise<void> {
-    try {
-      await this.wordRepository.create({
-        english: wordInfo.word,
-        chinese: wordInfo.translation || '',
-        phonetic: wordInfo.pronunciation || '',
-        partOfSpeech: wordInfo.partOfSpeech || '',
-        difficultyLevel: wordInfo.difficultyLevel || 1,
-        definition: wordInfo.definition || '',
-        isActive: true
-      });
-    } catch (error) {
-      logger.error(`数据库存储失败: ${wordInfo.word}`, error);
-      // 不抛出错误，允许继续处理
-    }
-  }
-
-  /**
-   * 备用难度判断规则（当AI服务不可用时）
-   */
-  private static fallbackDifficultyJudgment(word: string): number {
-    const length = word.length;
-    
-    // 基础规则
-    if (length <= 3) return 1;
-    if (length <= 5) return 2;
-    if (length <= 7) return 3;
-    if (length <= 9) return 4;
-    return 5;
   }
 
   /**
    * 获取配置状态
    */
-  static async getConfigStatus(): Promise<{
-    tencentAPI: boolean;
-    volcanoAI: boolean;
-    database: boolean;
-  }> {
+  static async getConfigStatus(): Promise<any> {
     try {
-      // 检查腾讯翻译API配置
-      const tencentConfigured = !!(process.env.TENCENT_APP_ID && process.env.TENCENT_APP_KEY);
-      
-      // 检查火山AI配置
-      const volcanoConfigured = !!(process.env.VOLCANO_API_KEY && process.env.VOLCANO_API_URL);
-      
-      // 检查数据库连接
-      let databaseConnected = false;
-      try {
-        databaseConnected = await testConnection();
-      } catch (error) {
-        logger.error('数据库连接测试失败:', error);
-        databaseConnected = false;
-      }
-      
       return {
-        tencentAPI: tencentConfigured,
-        volcanoAI: volcanoConfigured,
-        database: databaseConnected
+        success: true,
+        data: {
+          service: 'SimplifiedWordService',
+          status: 'active',
+          version: '1.0.0',
+          features: ['batch_process', 'display_check', 'filter_complex', 'single_process']
+        }
       };
     } catch (error) {
       logger.error('获取配置状态失败:', error);
-      return {
-        tencentAPI: false,
-        volcanoAI: false,
-        database: false
-      };
+      throw error;
     }
   }
 }

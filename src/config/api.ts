@@ -10,9 +10,9 @@ const getBaseURL = (): string => {
     return import.meta.env.VITE_API_BASE_URL;
   }
   
-  // 开发环境默认值
+  // 开发环境使用空字符串，通过Vite代理
   if (import.meta.env.DEV) {
-    return 'http://localhost:8080';
+    return '';
   }
   
   // 生产环境使用相对路径
@@ -28,19 +28,7 @@ export const API_CONFIG = {
   endpoints: {
 
     
-    // 增强翻译服务
-    enhanced: {
-      paragraph: '/api/enhanced/paragraph',
-      words: '/api/enhanced/words',
-      history: '/api/enhanced/history'
-    },
-    
-    // 基础翻译服务
-    translation: {
-      translate: '/api/translate',
-      batch: '/api/translate/batch',
-      words: '/api/translate/words'
-    },
+
     
     // 单词查询
     words: {
@@ -52,7 +40,7 @@ export const API_CONFIG = {
       clearCache: '/api/words/clear-cache',
       cacheStats: '/api/words/cache-stats',
       health: '/api/words/health',
-      // 查找难度级别≥2的单词
+      // 查找难度级别≥3的单词
       difficult: '/api/words/difficult'
     },
     
@@ -60,12 +48,19 @@ export const API_CONFIG = {
     aiWords: {
       batchProcess: '/api/ai-words/batch-process',
       filterComplex: '/api/ai-words/filter-complex',
-      checkTranslation: '/api/ai-words/check-translation',
+      checkDisplay: '/api/ai-words/check-display',
       processSingle: '/api/ai-words/process-single',
       configStatus: '/api/ai-words/config-status'
     },
     
-    // 系统接口
+    // 翻译相关
+    translation: {
+      translate: '/api/translate',
+      batch: '/api/translate/batch',
+      history: '/api/translate/history'
+    },
+    
+    // 系统相关
     system: {
       health: '/api/health',
       info: '/api/info'
@@ -88,21 +83,6 @@ export const buildURL = (endpoint: string): string => {
 
 // 常用API URL构建器
 export const API_URLS = {
-
-  
-  // 基础翻译服务
-  translate: {
-    translate: () => buildURL(API_CONFIG.endpoints.translation.translate),
-    batch: () => buildURL(API_CONFIG.endpoints.translation.batch),
-    words: () => buildURL(API_CONFIG.endpoints.translation.words)
-  },
-  
-  // 增强翻译
-  enhanced: {
-    paragraph: () => buildURL(API_CONFIG.endpoints.enhanced.paragraph),
-    words: () => buildURL(API_CONFIG.endpoints.enhanced.words),
-    history: () => buildURL(API_CONFIG.endpoints.enhanced.history)
-  },
   
   // 单词查询
   words: {
@@ -116,7 +96,7 @@ export const API_URLS = {
     clearCache: () => buildURL(API_CONFIG.endpoints.words.clearCache),
     cacheStats: () => buildURL(API_CONFIG.endpoints.words.cacheStats),
     health: () => buildURL(API_CONFIG.endpoints.words.health),
-    // 查找难度级别≥2的单词
+    // 查找难度级别≥3的单词
     difficult: () => buildURL(API_CONFIG.endpoints.words.difficult)
   },
   
@@ -124,9 +104,16 @@ export const API_URLS = {
   aiWords: {
     batchProcess: () => buildURL(API_CONFIG.endpoints.aiWords.batchProcess),
     filterComplex: () => buildURL(API_CONFIG.endpoints.aiWords.filterComplex),
-    checkTranslation: () => buildURL(API_CONFIG.endpoints.aiWords.checkTranslation),
+    checkDisplay: () => buildURL(API_CONFIG.endpoints.aiWords.checkDisplay),
     processSingle: () => buildURL(API_CONFIG.endpoints.aiWords.processSingle),
     configStatus: () => buildURL(API_CONFIG.endpoints.aiWords.configStatus)
+  },
+  
+  // 翻译接口
+  translation: {
+    translate: () => buildURL(API_CONFIG.endpoints.translation.translate),
+    batch: () => buildURL(API_CONFIG.endpoints.translation.batch),
+    history: () => buildURL(API_CONFIG.endpoints.translation.history)
   },
   
   // 系统接口

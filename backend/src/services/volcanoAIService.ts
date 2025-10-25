@@ -1,423 +1,784 @@
 import axios from 'axios';
 import { logger } from '@/utils/logger';
-import { WordDifficultyLevel } from './wordDifficultyService';
+import { CacheService } from '@/config/redis';
 
-// 火山AI API配置
-const VOLCANO_API_KEY = process.env.VOLCANO_API_KEY;
-const VOLCANO_API_URL = process.env.VOLCANO_API_URL;
-const VOLCANO_MODEL = process.env.VOLCANO_MODEL || 'kimi-k2-250905';
-
-// 单词信息接口
-interface WordInfo {
+export interface WordComplexityResult {
   word: string;
-  translation: string;
+  isComplex: boolean;
+  reason?: string;
+  difficultyLevel?: number;
+  translation?: string;
   pronunciation?: string;
   partOfSpeech?: string;
+  translations?: string[];
 }
-
-// AI判断结果接口
-interface AIJudgmentResult {
-  word: string;
-  difficultyLevel: WordDifficultyLevel;
-  reasoning: string;
-  confidence: number;
-}
-
-// 重试配置（耐心等待版）
-const RETRY_CONFIG = {
-  maxRetries: 1,    // 进一步减少重试次数，主要依靠长超时
-  baseDelay: 2000,  // 增加延迟时间，给AI更多处理时间
-  maxDelay: 5000    // 适当增加最大延迟
-};
 
 export class VolcanoAIService {
+  // EdgeFN API配置（主要）
+  private static edgefnApiKey = process.env.EDGEFN_API_KEY;
+  private static edgefnApiUrl = process.env.EDGEFN_API_URL;
+  private static edgefnModel = process.env.EDGEFN_MODEL || 'DeepSeek-R1-0528-Qwen3-8B';
   
-  /**
-   * 使用火山AI判断单词难度等级
-   * @param wordInfo 单词信息（包含翻译、音标等）
-   * @returns AI判断结果
-   */
-  static async judgeWordDifficulty(wordInfo: WordInfo): Promise<AIJudgmentResult> {
-    if (!VOLCANO_API_KEY || !VOLCANO_API_URL) {
-      throw new Error('火山AI API配置缺失：缺少API密钥或URL');
-    }
+  // EdgeFN API配置（备用2）
+  private static edgefnApiKey2 = process.env.EDGEFN_API_KEY_2;
+  private static edgefnApiUrl2 = process.env.EDGEFN_API_URL_2;
+  private static edgefnModel2 = process.env.EDGEFN_MODEL_2 || 'KAT-Coder-Exp-72B-1010';
+  
+  // EdgeFN API配置（备用3 - Embeddings）
+  private static edgefnApiKey3 = process.env.EDGEFN_API_KEY_3;
+  private static edgefnApiUrl3 = process.env.EDGEFN_API_URL_3;
+  private static edgefnModel3 = process.env.EDGEFN_MODEL_3 || 'BAAI/bge-m3';
+  
+  // 火山AI配置（备用4）
+  private static apiKey = process.env.VOLCANO_API_KEY;
+  private static apiUrl = process.env.VOLCANO_API_URL;
+  private static model = process.env.VOLCANO_MODEL || 'ep-20241022140820-8xqpz';
+  
+  // Token使用量管理
+  private static tokenUsageKey = 'volcano_ai_token_usage';
+  private static dailyTokenLimit = parseInt(process.env.VOLCANO_DAILY_TOKEN_LIMIT || '100000');
+  
+  // 并发控制
+  private static maxConcurrentRequests = parseInt(process.env.VOLCANO_MAX_CONCURRENT || '3');
+  private static activeRequests = 0;
 
-    logger.info(`开始判断单词难度: ${wordInfo.word}`);
-    const prompt = this.buildDifficultyJudgmentPrompt(wordInfo);
-    
+  /**
+   * 构建批量单词难度判断提示词（优化Token使用）
+   */
+  private static buildBatchDifficultyJudgmentPrompt(words: string[]): string {
+    return `分析英文单词难度并提供中文翻译，返回JSON数组:
+[{"word":"单词","isComplex":true,"difficultyLevel":1-5,"translations":["中文翻译1","中文翻译2"],"pronunciation":"音标","partOfSpeech":"词性"}]
+
+难度级别说明:
+1-基础词汇(a,the,is) 
+2-基础动名词(go,man,book) 
+3-日常高频词汇(important,beautiful) 
+4-专业学术词汇(revolutionary,technology) 
+5-生僻专业术语(sophisticated,unprecedented)
+
+要求:
+- 必须提供准确的中文翻译
+- 音标使用国际音标格式
+- 词性用英文缩写(n./v./adj./adv.等)
+
+待分析单词:${words.join(',')}`;
+  }
+
+  /**
+   * 检查Token使用量
+   */
+  private static async checkTokenUsage(): Promise<boolean> {
     try {
-      const response = await this.callVolcanoAIWithRetry(prompt);
-      const result = this.parseAIResponse(wordInfo.word, response);
-      logger.info(`单词 ${wordInfo.word} 难度判断完成: 等级${result.difficultyLevel}`);
-      return result;
+      const today = new Date().toISOString().split('T')[0];
+      const usageKey = `${this.tokenUsageKey}:${today}`;
+      const currentUsage = await CacheService.get<number>(usageKey) || 0;
+      
+      if (currentUsage >= this.dailyTokenLimit) {
+        logger.warn(`Token使用量已达到每日限制: ${currentUsage}/${this.dailyTokenLimit}`);
+        return false;
+      }
+      
+      return true;
     } catch (error) {
-      logger.error(`火山AI判断单词 ${wordInfo.word} 难度失败:`, error);
-      // 降级处理：使用基础规则判断
-      return this.fallbackJudgment(wordInfo);
+      logger.error('检查Token使用量失败:', error);
+      return true; // 检查失败时允许继续
     }
   }
 
   /**
-   * 批量判断单词难度
-   * @param wordInfos 单词信息数组
-   * @returns AI判断结果数组
+   * 记录Token使用量
    */
-  static async batchJudgeWordDifficulty(wordInfos: WordInfo[]): Promise<AIJudgmentResult[]> {
-    if (wordInfos.length === 0) {
-      return [];
-    }
-
-    logger.info(`开始批量判断 ${wordInfos.length} 个单词的难度`);
-
-    // 优先尝试真正的批量API调用
+  private static async recordTokenUsage(tokens: number): Promise<void> {
     try {
-      const batchResults = await this.batchJudgeWordDifficultyOptimized(wordInfos);
-      logger.info(`批量难度判断成功，处理了 ${batchResults.length} 个单词`);
-      return batchResults;
+      const today = new Date().toISOString().split('T')[0];
+      const usageKey = `${this.tokenUsageKey}:${today}`;
+      const currentUsage = await CacheService.get<number>(usageKey) || 0;
+      const newUsage = currentUsage + tokens;
+      
+      await CacheService.set(usageKey, newUsage, 86400); // 24小时过期
+      logger.info(`Token使用量更新: ${newUsage}/${this.dailyTokenLimit}`);
+      
+      // 预警机制
+      const usagePercent = (newUsage / this.dailyTokenLimit) * 100;
+      if (usagePercent >= 80) {
+        logger.warn(`Token使用量预警: ${usagePercent.toFixed(1)}% (${newUsage}/${this.dailyTokenLimit})`);
+      }
     } catch (error) {
-      logger.warn('批量API调用失败，降级为分批处理:', error);
-      return this.batchJudgeWordDifficultyFallback(wordInfos);
+      logger.error('记录Token使用量失败:', error);
     }
   }
 
   /**
-   * 优化的批量难度判断（真正的批量API调用）
+   * 并发控制
    */
-  private static async batchJudgeWordDifficultyOptimized(wordInfos: WordInfo[]): Promise<AIJudgmentResult[]> {
-    const batchPrompt = this.buildBatchDifficultyJudgmentPrompt(wordInfos);
-    const response = await this.callVolcanoAIWithRetry(batchPrompt);
-    return this.parseBatchAIResponse(wordInfos, response);
+  private static async waitForSlot(): Promise<void> {
+    while (this.activeRequests >= this.maxConcurrentRequests) {
+      logger.info(`等待并发槽位释放... (当前: ${this.activeRequests}/${this.maxConcurrentRequests})`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    this.activeRequests++;
   }
 
   /**
-   * 降级的批量难度判断（分批并发处理）
+   * 释放并发槽位
    */
-  private static async batchJudgeWordDifficultyFallback(wordInfos: WordInfo[]): Promise<AIJudgmentResult[]> {
-    const results: AIJudgmentResult[] = [];
+  private static releaseSlot(): void {
+    this.activeRequests = Math.max(0, this.activeRequests - 1);
+  }
+
+  /**
+   * 通用API调用方法 - 按优先级依次尝试所有可用的API
+   * @param prompt 要发送的提示词
+   * @param taskType 任务类型，用于日志记录
+   * @returns API响应内容
+   */
+  static async callAnyAvailableAPI(prompt: string, taskType: string = '通用任务'): Promise<string> {
+    let content: string | undefined;
+    let lastError: Error | undefined;
     
-    // 控制并发数量，避免API限流
-    const batchSize = 5;
-    for (let i = 0; i < wordInfos.length; i += batchSize) {
-      const batch = wordInfos.slice(i, i + batchSize);
-      const batchPromises = batch.map(wordInfo => 
-        this.judgeWordDifficulty(wordInfo).catch(error => {
-          logger.warn(`单词 ${wordInfo.word} 判断失败:`, error);
-          return this.fallbackJudgment(wordInfo);
-        })
-      );
-      
-      const batchResults = await Promise.all(batchPromises);
-      results.push(...batchResults);
-      
-      // 批次间延迟，避免频率限制
-      if (i + batchSize < wordInfos.length) {
-        await this.delay(500);
+    // 按优先级依次尝试API
+    // 1. 优先尝试EdgeFN API 1 (DeepSeek-R1-0528-Qwen3-8B)
+    if (this.edgefnApiKey && this.edgefnApiUrl) {
+      try {
+        logger.info(`${taskType}: 尝试使用EdgeFN API 1 (DeepSeek-R1-0528-Qwen3-8B)`);
+        content = await this.callEdgeFNAPI(prompt);
+        logger.info(`${taskType}: EdgeFN API 1调用成功`);
+        return content;
+      } catch (error) {
+        lastError = error as Error;
+        logger.warn(`${taskType}: EdgeFN API 1调用失败:`, error);
       }
     }
     
-    return results;
-  }
-
-  /**
-   * 构建批量难度判断的Prompt（简化版，只传单词）
-   */
-  private static buildBatchDifficultyJudgmentPrompt(wordInfos: WordInfo[]): string {
-    const wordList = wordInfos.map((wordInfo, index) => 
-      `${index + 1}. ${wordInfo.word}`
-    ).join('\n');
-
-    return `请作为英语教学专家，批量判断以下英语单词的学习难度等级（1-10级）：
-
-单词列表：
-${wordList}
-
-难度等级标准：
-1级：最基础词汇 (a, the, is, go)
-2级：基础动词名词 (come, man, woman)
-3级：日常词汇 (about, after, good)
-4级：高中水平 (important, different)
-5级：大学水平 (sophisticated, comprehensive)
-6级：学术词汇 (methodology, paradigm)
-7级：高级学术 (epistemological, phenomenological)
-8级：专业术语 (biochemistry, quantum)
-9级：特定领域 (jurisprudence, ontological)
-10级：罕见词汇 (sesquipedalian, perspicacious)
-
-判断依据：使用频率、学习阶段、复杂度
-
-请以JSON数组格式回复，每个单词对应一个对象：
-[
-  {
-    "word": "单词1",
-    "difficulty_level": 数字(1-10),
-    "reasoning": "判断理由",
-    "confidence": 数字(0.0-1.0)
-  },
-  {
-    "word": "单词2",
-    "difficulty_level": 数字(1-10),
-    "reasoning": "判断理由",
-    "confidence": 数字(0.0-1.0)
-  }
-]`;
-  }
-
-  /**
-   * 构建难度判断的Prompt
-   */
-  private static buildDifficultyJudgmentPrompt(wordInfo: WordInfo): string {
-    return `请作为英语教学专家，判断以下英语单词的学习难度等级（1-10级）：
-
-单词信息：
-- 英文单词：${wordInfo.word}
-- 中文翻译：${wordInfo.translation}
-- 音标：${wordInfo.pronunciation || '未提供'}
-- 词性：${wordInfo.partOfSpeech || '未提供'}
-
-难度等级标准：
-1级（最简单）：最基础词汇，如 a, the, is, am, are
-2级（简单）：基础动词和名词，如 go, come, man, woman
-3级（基础）：日常词汇，如 about, after, good, bad
-4级（中等）：高中水平，如 important, different, education
-5级（高级）：大学水平，如 sophisticated, comprehensive
-6级（专家级）：学术/专业词汇
-7级（非常高级）：高级学术词汇
-8级（学术级）：专业学术术语
-9级（专业级）：特定领域专业词汇
-10级（罕见）：极其罕见或古老词汇
-
-请考虑以下因素：
-1. 词汇在日常生活中的使用频率
-2. 学习者通常在什么阶段接触这个词汇
-3. 词汇的语法复杂度和语义复杂度
-4. 是否为专业术语或学术词汇
-
-请以JSON格式回复：
-{
-  "difficulty_level": 数字(1-10),
-  "reasoning": "判断理由",
-  "confidence": 数字(0.0-1.0)
-}`;
-  }
-
-  /**
-   * 调用火山AI API（带重试机制）
-   */
-  private static async callVolcanoAIWithRetry(prompt: string): Promise<string> {
-    let lastError: any;
-    
-    logger.info(`开始调用火山AI API，最大重试次数: ${RETRY_CONFIG.maxRetries}`);
-    
-    for (let attempt = 0; attempt < RETRY_CONFIG.maxRetries; attempt++) {
+    // 2. 如果第一个API失败，尝试EdgeFN API 2 (KAT-Coder-Exp-72B-1010)
+    if (!content && this.edgefnApiKey2 && this.edgefnApiUrl2) {
       try {
-        logger.info(`火山AI API调用尝试 ${attempt + 1}/${RETRY_CONFIG.maxRetries}`);
-        const response = await axios.post(
-          VOLCANO_API_URL!,
-          {
-            model: VOLCANO_MODEL, // 从环境变量读取模型名称
+        logger.info(`${taskType}: 尝试使用EdgeFN API 2 (KAT-Coder-Exp-72B-1010)`);
+        content = await this.callEdgeFNAPI2(prompt);
+        logger.info(`${taskType}: EdgeFN API 2调用成功`);
+        return content;
+      } catch (error) {
+        lastError = error as Error;
+        logger.warn(`${taskType}: EdgeFN API 2调用失败:`, error);
+      }
+    }
+    
+    // 3. 如果EdgeFN API都失败，最后尝试火山AI API
+    if (!content && this.apiKey && this.apiUrl) {
+      try {
+        logger.info(`${taskType}: 尝试使用火山AI API`);
+        content = await this.callVolcanoAPI(prompt);
+        logger.info(`${taskType}: 火山AI API调用成功`);
+        return content;
+      } catch (error) {
+        lastError = error as Error;
+        logger.warn(`${taskType}: 火山AI API调用失败:`, error);
+      }
+    }
+
+    // 如果所有API都失败，抛出最后一个错误
+    const errorMessage = lastError ? 
+      `${taskType}: 所有API调用都失败，最后错误: ${lastError.message}` : 
+      `${taskType}: 所有API都不可用或配置不完整`;
+    logger.error(errorMessage);
+    throw new Error(errorMessage);
+  }
+
+  /**
+   * 调用EdgeFN API进行单词分析
+   */
+  private static async callEdgeFNAPI(prompt: string): Promise<string> {
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`EdgeFN API调用尝试 ${attempt}/${maxRetries}`);
+        
+        const response = await fetch(this.edgefnApiUrl!, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.edgefnApiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.edgefnModel,
             messages: [
               {
                 role: 'user',
                 content: prompt
               }
             ],
-            max_tokens: 300,  // 减少token数量
-            temperature: 0.1  // 进一步降低随机性
-          },
-          {
-            headers: {
-              'Authorization': `Bearer ${VOLCANO_API_KEY}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 60000 // 增加超时时间到60秒，给AI充足处理时间
-          }
-        );
-
-        if (response.data?.choices?.[0]?.message?.content) {
-          logger.info(`🔥 火山AI API调用成功，尝试次数: ${attempt + 1}`);
-          console.log(`🔥 火山AI API调用成功，尝试次数: ${attempt + 1}，响应长度: ${response.data.choices[0].message.content.length}字符`);
-          return response.data.choices[0].message.content;
-        } else {
-          throw new Error('AI响应格式异常');
-        }
-        
-      } catch (error: any) {
-        lastError = error;
-        
-        // 详细的错误日志
-        const errorInfo = {
-          message: error.message,
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          data: error.response?.data,
-          code: error.code,
-          attempt: attempt + 1,
-          maxRetries: RETRY_CONFIG.maxRetries
-        };
-        
-        // 快速失败：对于某些错误不进行重试
-        const shouldNotRetry = error.response?.status === 401 || // 认证失败
-                              error.response?.status === 403 || // 权限不足
-                              error.response?.status === 400;   // 请求格式错误
-        
-        if (shouldNotRetry) {
-          logger.error('🔥 火山AI API调用遇到不可重试错误:', errorInfo);
-          console.error('🔥 火山AI API调用失败 - 不可重试错误:', {
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            message: error.message,
-            data: error.response?.data
-          });
-          throw error;
-        }
-        
-        // 如果是最后一次尝试，直接抛出错误
-        if (attempt === RETRY_CONFIG.maxRetries) {
-          logger.error('🔥 火山AI API调用最终失败:', errorInfo);
-          console.error('🔥 火山AI API调用最终失败 - 已达到最大重试次数:', {
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            message: error.message,
-            data: error.response?.data,
-            totalAttempts: RETRY_CONFIG.maxRetries
-          });
-          break;
-        }
-        
-        // 计算延迟时间（指数退避）
-        const delay = Math.min(
-          RETRY_CONFIG.baseDelay * Math.pow(2, attempt),
-          RETRY_CONFIG.maxDelay
-        );
-        
-        logger.warn(`🔥 火山AI API调用失败，${delay}ms后重试 (${attempt + 1}/${RETRY_CONFIG.maxRetries}):`, errorInfo);
-        console.warn(`🔥 火山AI API调用失败，${delay}ms后重试 (${attempt + 1}/${RETRY_CONFIG.maxRetries}):`, {
-          status: error.response?.status,
-          message: error.message,
-          nextRetryIn: `${delay}ms`
+            temperature: 0.1,
+            max_tokens: 2000
+          })
         });
-        await this.delay(delay);
+        
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, attempt) * 1000;
+          logger.warn(`EdgeFN API限流 (429)，等待 ${waitTime}ms 后重试...`);
+          
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            continue;
+          } else {
+            throw new Error(`EdgeFN API请求失败: 429 Too Many Requests (已重试${maxRetries}次)`);
+          }
+        }
+        
+        if (!response.ok) {
+          throw new Error(`EdgeFN API请求失败: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        
+        if (!content) {
+          throw new Error('EdgeFN API响应内容为空');
+        }
+        
+        logger.info('EdgeFN API调用成功');
+        return content;
+      } catch (error) {
+        lastError = error as Error;
+        logger.warn(`EdgeFN API调用尝试 ${attempt} 失败:`, error);
+        
+        if (attempt === maxRetries) {
+          throw lastError;
+        }
+        
+        // 等待后重试
+        const waitTime = Math.pow(2, attempt) * 1000;
+        await new Promise(resolve => setTimeout(resolve, waitTime));
       }
     }
     
-    throw lastError!;
+    throw lastError || new Error('EdgeFN API调用失败');
   }
 
   /**
-   * 解析批量AI响应
+   * 调用EdgeFN API 2进行单词分析（KAT-Coder-Exp-72B-1010模型）
    */
-  private static parseBatchAIResponse(wordInfos: WordInfo[], response: string): AIJudgmentResult[] {
-    try {
-      // 尝试解析JSON数组响应
-      const cleanResponse = response.trim().replace(/```json\s*|\s*```/g, '');
-      const parsedResponse = JSON.parse(cleanResponse);
-      
-      if (!Array.isArray(parsedResponse)) {
-        throw new Error('响应不是数组格式');
-      }
-
-      const results: AIJudgmentResult[] = [];
-      
-      // 为每个单词匹配AI响应
-      for (const wordInfo of wordInfos) {
-        const aiResult = parsedResponse.find(item => 
-          item.word && item.word.toLowerCase() === wordInfo.word.toLowerCase()
-        );
+  private static async callEdgeFNAPI2(prompt: string): Promise<string> {
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`EdgeFN API 2调用尝试 ${attempt}/${maxRetries}`);
         
-        if (aiResult) {
-          results.push({
-            word: wordInfo.word,
-            difficultyLevel: this.validateDifficultyLevel(aiResult.difficulty_level),
-            reasoning: aiResult.reasoning || '无具体理由',
-            confidence: Math.max(0, Math.min(1, aiResult.confidence || 0.8))
-          });
-        } else {
-          // 如果AI响应中没有找到对应单词，使用降级判断
-          logger.warn(`批量响应中未找到单词 ${wordInfo.word}，使用降级判断`);
-          results.push(this.fallbackJudgment(wordInfo));
+        const response = await fetch(this.edgefnApiUrl2!, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.edgefnApiKey2}`,
+          },
+          body: JSON.stringify({
+            model: this.edgefnModel2,
+            messages: [
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.1,
+            max_tokens: 2000
+          })
+        });
+        
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, attempt) * 1000;
+          logger.warn(`EdgeFN API 2限流 (429)，等待 ${waitTime}ms 后重试...`);
+          
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            continue;
+          } else {
+            throw new Error(`EdgeFN API 2请求失败: 429 Too Many Requests (已重试${maxRetries}次)`);
+          }
         }
+        
+        if (!response.ok) {
+          throw new Error(`EdgeFN API 2请求失败: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        
+        if (!content) {
+          throw new Error('EdgeFN API 2响应内容为空');
+        }
+        
+        logger.info('EdgeFN API 2调用成功');
+        return content;
+      } catch (error) {
+        lastError = error as Error;
+        logger.warn(`EdgeFN API 2调用尝试 ${attempt} 失败:`, error);
+        
+        if (attempt === maxRetries) {
+          throw lastError;
+        }
+        
+        // 等待后重试
+        const waitTime = Math.pow(2, attempt) * 1000;
+        await new Promise(resolve => setTimeout(resolve, waitTime));
       }
-      
-      return results;
-      
+    }
+    
+    throw lastError || new Error('EdgeFN API 2调用失败');
+  }
+
+  /**
+   * 调用火山AI API进行单词分析（备用）
+   */
+  private static async callVolcanoAPI(prompt: string): Promise<string> {
+    // 检查Token使用量
+    const canUseAPI = await this.checkTokenUsage();
+    if (!canUseAPI) {
+      throw new Error('火山AI Token使用量已达限制');
+    }
+
+    const maxRetries = 3;
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`火山AI API调用尝试 ${attempt}/${maxRetries}`);
+        
+        const response = await fetch(this.apiUrl!, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.model,
+            messages: [
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.1,
+            max_tokens: 2000
+          })
+        });
+        
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const waitTime = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, attempt) * 1000;
+          logger.warn(`火山AI API限流 (429)，等待 ${waitTime}ms 后重试...`);
+          
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            continue;
+          } else {
+            throw new Error(`火山AI API请求失败: 429 Too Many Requests (已重试${maxRetries}次)`);
+          }
+        }
+        
+        if (!response.ok) {
+          throw new Error(`火山AI API请求失败: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        
+        // 记录Token使用量
+        const tokensUsed = data.usage?.total_tokens || Math.ceil(prompt.length / 4);
+        await this.recordTokenUsage(tokensUsed);
+        
+        if (!content) {
+          throw new Error('火山AI API响应内容为空');
+        }
+        
+        logger.info('火山AI API调用成功');
+        return content;
+      } catch (error) {
+        lastError = error as Error;
+        logger.warn(`火山AI API调用尝试 ${attempt} 失败:`, error);
+        
+        if (attempt === maxRetries) {
+          throw lastError;
+        }
+        
+        // 等待后重试
+        const waitTime = Math.pow(2, attempt) * 1000;
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+    }
+    
+    throw lastError || new Error('火山AI API调用失败');
+  }
+
+  /**
+   * 判断单词是否复杂
+   */
+  static async isWordComplex(word: string): Promise<boolean> {
+    try {
+      const result = await this.analyzeWordComplexity([word]);
+      return result[0]?.isComplex || false;
     } catch (error) {
-      logger.error('批量AI响应解析失败:', error);
-      logger.debug('原始响应:', response);
-      
-      // 解析失败时，为所有单词使用降级判断
-      return wordInfos.map(wordInfo => this.fallbackJudgment(wordInfo));
+      logger.error(`判断单词复杂度失败: ${word}`, error);
+      // 降级处理：长度大于5的单词认为是复杂的
+      return word.length > 5;
     }
   }
 
   /**
-   * 解析AI响应
+   * 批量判断单词复杂度（带缓存，分批处理）
    */
-  private static parseAIResponse(word: string, response: string): AIJudgmentResult {
+  static async analyzeWordComplexity(words: string[]): Promise<WordComplexityResult[]> {
+    if (!words || words.length === 0) {
+      return [];
+    }
+
+    // 分批处理：每批最多20个单词
+    const BATCH_SIZE = 20;
+    const allResults: WordComplexityResult[] = [];
+    
+    logger.info(`🔍 [WordDifficultyService] 开始AI分析 ${words.length} 个新单词（已去重），将分${Math.ceil(words.length / BATCH_SIZE)}批处理`);
+
+    for (let i = 0; i < words.length; i += BATCH_SIZE) {
+      const batch = words.slice(i, i + BATCH_SIZE);
+      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(words.length / BATCH_SIZE);
+      
+      logger.info(`📦 处理第${batchNumber}/${totalBatches}批: ${batch.length}个单词`);
+      
+      const batchResults = await this.processSingleBatch(batch);
+      allResults.push(...batchResults);
+      
+      // 批次间稍微延迟，避免API限流
+      if (i + BATCH_SIZE < words.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    logger.info(`✅ 所有批次处理完成，共分析${allResults.length}个单词`);
+    return allResults;
+  }
+
+  /**
+   * 处理单个批次的单词
+   */
+  private static async processSingleBatch(words: string[]): Promise<WordComplexityResult[]> {
+    // 检查缓存
+    const cacheKey = `word_complexity_batch:${words.sort().join(',')}`;
     try {
-      // 尝试提取JSON部分
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('响应中未找到JSON格式');
+      const cached = await CacheService.get<WordComplexityResult[]>(cacheKey);
+      if (cached) {
+        logger.info(`批量单词分析缓存命中: ${words.length}个单词`);
+        return cached;
+      }
+    } catch (error) {
+      logger.warn('缓存读取失败，继续API调用:', error);
+    }
+
+    // 并发控制
+    await this.waitForSlot();
+
+    const prompt = this.buildBatchDifficultyJudgmentPrompt(words);
+
+    try {
+      // 使用通用API调用方法
+      const content = await this.callAnyAvailableAPI(prompt, '单词分析');
+
+      // 解析JSON响应
+      let results: WordComplexityResult[];
+      try {
+        // 尝试直接解析
+        logger.info('尝试解析JSON内容:', content.substring(0, 500) + '...');
+        results = JSON.parse(content);
+        logger.info('JSON解析成功，结果数量:', results.length);
+      } catch (parseError) {
+        logger.warn('直接JSON解析失败，尝试多种解析策略:', parseError);
+        
+        // 策略1: 提取JSON数组
+        let jsonMatch = content.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          try {
+            logger.info('找到JSON数组，尝试解析...');
+            results = JSON.parse(jsonMatch[0]);
+            logger.info('JSON数组解析成功，结果数量:', results.length);
+          } catch (arrayParseError) {
+            logger.warn('JSON数组解析失败:', arrayParseError);
+            jsonMatch = null;
+          }
+        }
+        
+        // 策略2: 清理并修复JSON格式
+        if (!jsonMatch) {
+          try {
+            logger.info('尝试清理和修复JSON格式...');
+            let cleanedContent = content
+              .replace(/```json/g, '')
+              .replace(/```/g, '')
+              .replace(/\n/g, ' ')
+              .replace(/\r/g, ' ')
+              .replace(/\t/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            
+            // 查找JSON数组的开始和结束
+            const startIndex = cleanedContent.indexOf('[');
+            const lastIndex = cleanedContent.lastIndexOf(']');
+            
+            if (startIndex !== -1 && lastIndex !== -1 && lastIndex > startIndex) {
+              const jsonString = cleanedContent.substring(startIndex, lastIndex + 1);
+              logger.info('提取的JSON字符串:', jsonString.substring(0, 200) + '...');
+              
+              // 尝试修复常见的JSON格式问题
+              let fixedJson = jsonString
+                .replace(/,\s*}/g, '}')  // 移除对象末尾多余的逗号
+                .replace(/,\s*]/g, ']')  // 移除数组末尾多余的逗号
+                .replace(/'/g, '"')      // 将单引号替换为双引号
+                .replace(/(\w+):/g, '"$1":'); // 为属性名添加双引号
+              
+              results = JSON.parse(fixedJson);
+              logger.info('修复后JSON解析成功，结果数量:', results.length);
+            } else {
+              throw new Error('无法找到有效的JSON数组结构');
+            }
+          } catch (fixError) {
+            logger.error('JSON修复解析失败:', fixError);
+            
+            // 策略3: 降级处理 - 生成基础结果
+            logger.warn('所有JSON解析策略都失败，使用降级处理');
+            results = words.map(word => ({
+              word: word,
+              isComplex: word.length > 5, // 简单的长度判断
+              difficultyLevel: word.length > 8 ? 4 : word.length > 5 ? 3 : 2,
+              reason: '解析失败，使用基础判断',
+              translation: '暂无释义',
+              pronunciation: '',
+              partOfSpeech: '',
+              translations: ['暂无释义']
+            }));
+            logger.info('降级处理完成，生成基础结果数量:', results.length);
+          }
+        }
+      }
+
+      // 处理结果，确保包含所有必要字段
+      const processedResults = results.map(result => ({
+        word: result.word,
+        isComplex: result.isComplex,
+        difficultyLevel: result.difficultyLevel,
+        reason: result.reason || `难度级别: ${result.difficultyLevel}`,
+        translation: result.translations?.[0] || result.translation || '暂无释义',
+        pronunciation: result.pronunciation || '',
+        partOfSpeech: result.partOfSpeech || '',
+        translations: result.translations || [result.translation || '暂无释义']
+      }));
+
+      // 缓存结果（1小时）
+      try {
+        await CacheService.set(cacheKey, processedResults, 3600);
+        logger.info(`批量单词分析结果已缓存: ${words.length}个单词`);
+      } catch (cacheError) {
+        logger.warn('缓存结果失败:', cacheError);
+      }
+
+      return processedResults;
+    } catch (error) {
+      logger.error('API调用失败:', error);
+      throw error; // 直接抛出错误，不进行降级处理
+    } finally {
+      // 释放并发槽位
+      this.releaseSlot();
+    }
+  }
+
+  /**
+   * 过滤复杂单词（基于5级难度等级标准）
+   */
+  static async filterComplexWords(words: string[]): Promise<{
+    complexWords: string[];
+    simpleWords: string[];
+    total: number;
+    complexCount: number;
+    wordDetails: Array<{
+      word: string;
+      difficultyLevel: number;
+      translations: string[];
+      pronunciation: string;
+      partOfSpeech: string;
+    }>;
+  }> {
+    try {
+      const results = await this.analyzeWordComplexity(words);
+      
+      const complexWords: string[] = [];
+      const simpleWords: string[] = [];
+      const wordDetails: Array<{
+        word: string;
+        difficultyLevel: number;
+        translations: string[];
+        pronunciation: string;
+        partOfSpeech: string;
+      }> = [];
+      
+      results.forEach(result => {
+        const difficultyLevel = result.difficultyLevel || 1;
+        
+        // 记录单词详细信息
+        wordDetails.push({
+          word: result.word,
+          difficultyLevel,
+          translations: result.translations || [],
+          pronunciation: result.pronunciation || '',
+          partOfSpeech: result.partOfSpeech || ''
+        });
+        
+        // 难度级别 >= 3 的单词被认为是复杂的（日常高频词汇及以上）
+        if (difficultyLevel >= 3) {
+          complexWords.push(result.word);
+        } else {
+          simpleWords.push(result.word);
+        }
+      });
+      
+      return {
+        complexWords,
+        simpleWords,
+        total: words.length,
+        complexCount: complexWords.length,
+        wordDetails
+      };
+    } catch (error) {
+      logger.error('过滤复杂单词失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 段落翻译方法
+   * @param text 要翻译的段落文本
+   * @param sourceLanguage 源语言（默认为英语）
+   * @param targetLanguage 目标语言（默认为中文）
+   * @returns 翻译结果
+   */
+  static async translateParagraph(
+    text: string, 
+    sourceLanguage: string = 'English', 
+    targetLanguage: string = 'Chinese'
+  ): Promise<{
+    originalText: string;
+    translatedText: string;
+    sourceLanguage: string;
+    targetLanguage: string;
+  }> {
+    if (!text || text.trim().length === 0) {
+      throw new Error('翻译文本不能为空');
+    }
+
+    // 并发控制
+    await this.waitForSlot();
+
+    try {
+      // 构建翻译提示词
+      const prompt = `请将以下${sourceLanguage}文本翻译成${targetLanguage}，要求：
+1. 保持原文的语气和风格
+2. 确保翻译准确、自然、流畅
+3. 只返回翻译结果，不要添加任何解释或说明
+
+原文：
+${text}
+
+翻译：`;
+
+      // 使用通用API调用方法
+      const translatedText = await this.callAnyAvailableAPI(prompt, '段落翻译');
+
+      // 清理翻译结果（移除可能的前缀或后缀）
+      const cleanedTranslation = translatedText
+        .replace(/^翻译[：:]\s*/, '')
+        .replace(/^译文[：:]\s*/, '')
+        .replace(/^结果[：:]\s*/, '')
+        .trim();
+
+      logger.info(`段落翻译完成: ${text.substring(0, 50)}... -> ${cleanedTranslation.substring(0, 50)}...`);
+
+      return {
+        originalText: text,
+        translatedText: cleanedTranslation,
+        sourceLanguage,
+        targetLanguage
+      };
+    } catch (error) {
+      logger.error('段落翻译失败:', error);
+      throw error;
+    } finally {
+      // 释放并发槽位
+      this.releaseSlot();
+    }
+  }
+
+  /**
+   * 检查单词是否需要显示（基于5级难度等级标准）
+   */
+  static async checkDisplayNeeded(word: string): Promise<{
+    word: string;
+    needsDisplay: boolean;
+    reason: string;
+    difficultyLevel?: number;
+    translations?: string[];
+    pronunciation?: string;
+    partOfSpeech?: string;
+  }> {
+    try {
+      // 使用火山AI分析单词复杂度
+      const results = await this.analyzeWordComplexity([word]);
+      
+      if (results.length > 0) {
+        const result = results[0];
+        const difficultyLevel = result.difficultyLevel || 1;
+        
+        // 难度级别 >= 3 的单词需要显示（日常高频词汇及以上）
+        const needsDisplay = difficultyLevel >= 3;
+        
+        const difficultyLabels = {
+          1: '基础词汇',
+          2: '基础动词名词', 
+          3: '日常高频词汇',
+          4: '专业学术词汇',
+          5: '生僻专业术语'
+        };
+        
+        return {
+          word,
+          needsDisplay,
+          reason: needsDisplay 
+            ? `${difficultyLabels[difficultyLevel as keyof typeof difficultyLabels] || '未知'} (级别${difficultyLevel})` 
+            : `${difficultyLabels[difficultyLevel as keyof typeof difficultyLabels] || '未知'} (级别${difficultyLevel})`,
+          difficultyLevel,
+          translations: result.translations || [],
+          pronunciation: result.pronunciation || '',
+          partOfSpeech: result.partOfSpeech || ''
+        };
       }
       
-      const parsed = JSON.parse(jsonMatch[0]);
+      // 如果AI分析失败，使用本地难度判断作为降级处理
+      const isComplex = await this.isWordComplex(word);
       
       return {
         word,
-        difficultyLevel: this.validateDifficultyLevel(parsed.difficulty_level),
-        reasoning: parsed.reasoning || '无理由说明',
-        confidence: Math.max(0, Math.min(1, parsed.confidence || 0.5))
+        needsDisplay: isComplex,
+        reason: isComplex ? '单词较复杂，需要显示提示' : '单词简单，无需显示提示'
       };
-      
     } catch (error) {
-      logger.warn(`解析AI响应失败，使用降级判断: ${word}`, error);
-      throw new Error(`AI响应解析失败: ${error}`);
+      logger.error(`检查单词显示需求失败: ${word}`, error);
+      
+      // 降级处理：基于单词长度判断
+      const needsDisplay = word.length > 5;
+      return {
+        word,
+        needsDisplay,
+        reason: needsDisplay ? '单词较长，可能较复杂' : '单词较短，可能较简单'
+      };
     }
-  }
-
-  /**
-   * 验证并修正难度等级
-   */
-  private static validateDifficultyLevel(level: any): WordDifficultyLevel {
-    const numLevel = parseInt(level);
-    if (isNaN(numLevel) || numLevel < 1 || numLevel > 10) {
-      return WordDifficultyLevel.INTERMEDIATE; // 默认中等难度
-    }
-    return numLevel as WordDifficultyLevel;
-  }
-
-  /**
-   * 降级处理：使用基础规则判断
-   */
-  private static fallbackJudgment(wordInfo: WordInfo): AIJudgmentResult {
-    const word = wordInfo.word.toLowerCase();
-    let difficultyLevel: WordDifficultyLevel;
-    
-    // 简单的规则判断
-    if (word.length <= 3) {
-      difficultyLevel = WordDifficultyLevel.VERY_EASY;
-    } else if (word.length <= 5) {
-      difficultyLevel = WordDifficultyLevel.EASY;
-    } else if (word.length <= 7) {
-      difficultyLevel = WordDifficultyLevel.INTERMEDIATE;
-    } else if (word.length <= 10) {
-      difficultyLevel = WordDifficultyLevel.ADVANCED;
-    } else {
-      difficultyLevel = WordDifficultyLevel.EXPERT;
-    }
-    
-    return {
-      word: wordInfo.word,
-      difficultyLevel,
-      reasoning: '使用基础规则判断（AI服务不可用）',
-      confidence: 0.6
-    };
-  }
-
-  /**
-   * 延迟函数
-   */
-  private static delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }

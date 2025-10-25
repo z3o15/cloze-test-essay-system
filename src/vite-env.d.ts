@@ -8,12 +8,8 @@ declare module '*.vue' {
 }
 
 interface ImportMetaEnv {
-  readonly VITE_VOLCANO_API_KEY: string
-  readonly VITE_VOLCANO_API_URL: string
-  readonly VITE_BAIDU_APP_ID: string
-  readonly VITE_BAIDU_SECRET_KEY: string
-  readonly VITE_TENCENT_APP_ID: string
-  readonly VITE_TENCENT_KEY: string
+  readonly VITE_API_BASE_URL: string
+  readonly VITE_PUBLIC_PATH: string
   // 更多环境变量...
 }
 

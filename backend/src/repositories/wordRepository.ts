@@ -85,7 +85,7 @@ export class WordRepository {
 
     // 构建WHERE条件
     if (search) {
-      sql += ` WHERE (word ILIKE $${paramIndex} OR translation ILIKE $${paramIndex})`;
+      sql += ` WHERE (word ILIKE $${paramIndex} OR meaning ILIKE $${paramIndex})`;
       values.push(`%${search}%`);
       paramIndex++;
     }
@@ -125,7 +125,7 @@ export class WordRepository {
 
     // 构建WHERE条件
     if (search) {
-      sql += ` WHERE (word ILIKE $${paramIndex} OR translation ILIKE $${paramIndex})`;
+      sql += ` WHERE (word ILIKE $${paramIndex} OR meaning ILIKE $${paramIndex})`;
       values.push(`%${search}%`);
     }
 
@@ -149,15 +149,15 @@ export class WordRepository {
    * 创建单词
    */
   async create(wordData: WordCreateRequest): Promise<Word> {
-    const { word, pronunciation, translation } = wordData;
+    const { word, pronunciation, meaning } = wordData;
     
     const sql = `
-      INSERT INTO ${this.tableName} (word, pronunciation, translation)
+      INSERT INTO ${this.tableName} (word, pronunciation, meaning)
       VALUES ($1, $2, $3)
       RETURNING *
     `;
     
-    const values = [word.toLowerCase(), pronunciation, translation];
+    const values = [word.toLowerCase(), pronunciation, meaning];
     
     try {
       logger.debug('创建单词:', { sql, values });
@@ -382,7 +382,7 @@ export class WordRepository {
       AND translation IS NOT NULL 
       AND pronunciation IS NOT NULL 
       AND difficulty_level IS NOT NULL
-      AND difficulty_level >= 2
+      AND difficulty_level >= 3
     `;
     
     try {
@@ -501,7 +501,7 @@ export class WordRepository {
   }
 
   /**
-   * 查找难度级别≥2的单词
+   * 查找难度级别≥3的单词
    */
   async findDifficultWords(words: string[]): Promise<Word[]> {
     if (words.length === 0) {
@@ -517,21 +517,21 @@ export class WordRepository {
       ORDER BY difficulty_level DESC, word ASC
     `;
     
-    const values = [2, ...words.map(w => w.toLowerCase())];
+    const values = [3, ...words.map(w => w.toLowerCase())];
     
     try {
-      logger.debug('查找难度级别≥2的单词:', { sql, values });
+      logger.debug('查找难度级别≥3的单词:', { sql, values });
       const result = await query(sql, values);
       
       return result.rows as Word[];
     } catch (error) {
-      logger.error('查找难度级别≥2的单词失败:', { 
+      logger.error('查找难度级别≥3的单词失败:', { 
         error: error instanceof Error ? error.message : error,
         stack: error instanceof Error ? error.stack : undefined,
         sql, 
         values 
       });
-      throw new Error('查找难度级别≥2的单词失败');
+      throw new Error('查找难度级别≥3的单词失败');
     }
   }
 }

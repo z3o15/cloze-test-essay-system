@@ -314,7 +314,7 @@ export class WordController {
   }
 
   /**
-   * 查找难度级别≥2的单词 - POST /api/words/difficult
+   * 查找难度级别≥3的单词 - POST /api/words/difficult
    */
   findDifficultWords = async (req: Request, res: Response): Promise<void> => {
     try {
@@ -329,17 +329,17 @@ export class WordController {
         return;
       }
 
-      logger.info('收到查找难度级别≥2的单词请求:', { count: words.length });
+      logger.info('收到查找难度级别≥3的单词请求:', { count: words.length });
 
       const difficultWords = await this.wordService.findDifficultWords(words);
 
       res.status(200).json({
         code: API_CODES.SUCCESS,
         data: difficultWords,
-        message: `找到 ${difficultWords.length} 个难度级别≥2的单词`
+        message: `找到 ${difficultWords.length} 个难度级别≥3的单词`
       });
     } catch (error) {
-      logger.error('查找难度级别≥2的单词控制器错误:', { 
+      logger.error('查找难度级别≥3的单词控制器错误:', { 
         error: error instanceof Error ? error.message : error 
       });
       

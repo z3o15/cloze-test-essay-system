@@ -36,14 +36,14 @@
         <div class="definitions-section">
           <div class="section-header">
             <h4 class="section-title">考研核心释义</h4>
-            <button class="retranslate-btn" @click="$emit('retranslate')">
-              <svg :class="{ 'rotate-icon': isRefreshing }" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 2v6h-6"></path>
-                <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
-                <path d="M3 22v-6h6"></path>
-                <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
-              </svg>
-            </button>
+            <button class="smart-hint-btn" @click="$emit('smartHint')">
+            <svg :class="{ 'rotate-icon': isRefreshing }" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 2v6h-6"></path>
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+              <path d="M3 22v-6h6"></path>
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+            </svg>
+          </button>
           </div>
           <div class="definitions-list">
             <div v-for="(def, idx) in wordInfo.definitions" :key="idx" class="definition-item">
@@ -82,7 +82,7 @@ const props = defineProps<Props>()
 
 defineEmits<{
   close: []
-  retranslate: []
+  smartHint: []
 }>()
 
 const playPronunciation = () => {
@@ -294,7 +294,7 @@ const getDifficultyDescription = (level: number): string => {
   margin: 0;
 }
 
-.retranslate-btn {
+.smart-hint-btn {
   background: none;
   border: 1px solid var(--color-border);
   border-radius: 6px;
@@ -304,7 +304,7 @@ const getDifficultyDescription = (level: number): string => {
   transition: all 0.2s ease;
 }
 
-.retranslate-btn:hover {
+.smart-hint-btn:hover {
   background: var(--color-bg-soft);
   border-color: var(--color-primary);
   color: var(--color-primary);

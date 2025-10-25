@@ -18,7 +18,7 @@ export interface WordDifficultyAnalysis {
   difficulty_level: WordDifficultyLevel
   difficulty_description: string
   is_simple: boolean
-  should_translate: boolean
+  should_display: boolean
 }
 
 // 批量单词难度分析响应接口

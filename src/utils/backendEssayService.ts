@@ -12,7 +12,7 @@ interface BackendEssayProcessResponse {
     paragraphs: Array<{
       id: string
       original_text: string
-      translated_text: string
+      processed_text: string
       paragraph_order: number
     }>
     word_count: number

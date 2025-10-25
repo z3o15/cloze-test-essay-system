@@ -62,11 +62,11 @@ export const estimateReadingTime = (content: string): number => {
 // 分析文章难度
 export const analyzeDifficulty = (content: string): 'easy' | 'medium' | 'hard' => {
   const wordCount = calculateWordCount(content)
-  const avgWordLength = content.replace(/\s+/g, '').length / wordCount
   
-  if (wordCount < 200 && avgWordLength < 5) {
+  // 基于字数简单判断难度
+  if (wordCount < 200) {
     return 'easy'
-  } else if (wordCount < 400 && avgWordLength < 6) {
+  } else if (wordCount < 400) {
     return 'medium'
   } else {
     return 'hard'

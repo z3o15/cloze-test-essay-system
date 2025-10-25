@@ -90,98 +90,94 @@ const SIMPLE_WORDS_SET = new Set([
 export class WordDifficultyService {
   
   /**
-   * 判断单词是否为简单词汇 (难度等级 ≤ 3)
-   * @param word 要检查的单词
+   * 判断单词是否为简单词汇 (难度级别 ≤ 2)
+   * @param word 单词
    * @returns 如果是简单词汇返回true，否则返回false
    */
   public static isSimpleWord(word: string): boolean {
     if (!word || typeof word !== 'string') {
-      return true; // 无效输入视为简单词汇，需要过滤
+      return false;
     }
     
     const normalizedWord = word.toLowerCase().trim();
     
-    // 过滤掉太短或太长的词
-    if (normalizedWord.length <= 1 || normalizedWord.length > 20) {
-      return true;
-    }
-    
-    // 基于难度等级判断：难度等级 ≤ 3 的词汇为简单词汇
-    const difficultyLevel = this.getWordDifficultyLevel(word);
-    return difficultyLevel <= WordDifficultyLevel.BASIC; // BASIC = 3
+    // 基于词汇表判断 - 只有难度级别 ≤ 2 的词汇被认为是简单的
+    return SIMPLE_WORDS_SET.has(normalizedWord);
   }
   
   /**
-   * 获取单词的难度等级
-   * @param word 要评估的单词
-   * @returns 难度等级 (1-10)
+   * 获取单词难度级别
+   * @param word 单词
+   * @returns 单词的难度级别
    */
   public static getWordDifficultyLevel(word: string): WordDifficultyLevel {
     if (!word || typeof word !== 'string') {
-      return WordDifficultyLevel.VERY_EASY;
+      return WordDifficultyLevel.INTERMEDIATE;
     }
     
     const normalizedWord = word.toLowerCase().trim();
     
-    // 基于词长度的初步判断
-    if (normalizedWord.length <= 2) {
-      return WordDifficultyLevel.VERY_EASY;
-    }
-    
-    // 简单词汇集合中的词汇分配到1-3级
+    // 基于词汇表判断难度级别
     if (SIMPLE_WORDS_SET.has(normalizedWord)) {
-      // 根据词长度细分简单词汇的难度
-      if (normalizedWord.length <= 3) {
-        return WordDifficultyLevel.VERY_EASY; // 1级：a, the, is, am, are等
-      } else if (normalizedWord.length <= 5) {
-        return WordDifficultyLevel.EASY; // 2级：basic verbs, common nouns
-      } else {
-        return WordDifficultyLevel.BASIC; // 3级：everyday vocabulary
-      }
+      // 简单词汇，根据词汇表中的位置估算难度级别 (1-2)
+      return WordDifficultyLevel.EASY; // 默认为简单级别
     }
     
-    // 非简单词汇从4级开始，基于词长度和复杂度的启发式判断
-    if (normalizedWord.length <= 4) {
-      return WordDifficultyLevel.INTERMEDIATE; // 4级
-    } else if (normalizedWord.length <= 6) {
-      return WordDifficultyLevel.ADVANCED; // 5级
-    } else if (normalizedWord.length <= 8) {
-      return WordDifficultyLevel.EXPERT; // 6级
-    } else if (normalizedWord.length <= 10) {
-      return WordDifficultyLevel.VERY_ADVANCED; // 7级
-    } else if (normalizedWord.length <= 12) {
-      return WordDifficultyLevel.ACADEMIC; // 8级
-    } else if (normalizedWord.length <= 15) {
-      return WordDifficultyLevel.SPECIALIZED; // 9级
+    // 基于单词长度和复杂性的启发式判断
+    const wordLength = normalizedWord.length;
+    
+    if (wordLength <= 3) {
+      return WordDifficultyLevel.BASIC;
+    } else if (wordLength <= 5) {
+      return WordDifficultyLevel.INTERMEDIATE;
+    } else if (wordLength <= 7) {
+      return WordDifficultyLevel.ADVANCED;
+    } else if (wordLength <= 9) {
+      return WordDifficultyLevel.EXPERT;
     } else {
-      return WordDifficultyLevel.RARE; // 10级
+      return WordDifficultyLevel.SPECIALIZED;
     }
   }
   
   /**
-   * 过滤掉简单词汇，只保留难度等级 > 4 的词汇
-   * @param words 待过滤的单词数组
-   * @returns 过滤后的单词数组
+   * 过滤复杂单词 (只返回难度级别 > 2 的单词)
+   * @param words 单词数组
+   * @returns 复杂单词数组
    */
   public static filterComplexWords(words: string[]): string[] {
     if (!Array.isArray(words)) {
+      logger.warn('filterComplexWords: 输入不是数组');
       return [];
     }
     
-    const filteredWords = words.filter(word => {
-      const isSimple = this.isSimpleWord(word);
-      if (isSimple) {
-        logger.debug(`过滤简单词汇: ${word}`);
+    const complexWords: string[] = [];
+    const processedWords = new Set<string>();
+    
+    for (const word of words) {
+      if (typeof word !== 'string' || !word.trim()) {
+        continue;
       }
-      return !isSimple;
-    });
+      
+      const normalizedWord = word.toLowerCase().trim();
+      
+      // 避免重复处理
+      if (processedWords.has(normalizedWord)) {
+        continue;
+      }
+      processedWords.add(normalizedWord);
+      
+      // 获取单词难度级别
+      const difficultyLevel = this.getWordDifficultyLevel(normalizedWord);
+      
+      // 只保留难度级别 > 2 的单词
+      if (difficultyLevel > WordDifficultyLevel.EASY) {
+        complexWords.push(normalizedWord);
+      }
+    }
     
-    // 去重处理
-    const uniqueWords = [...new Set(filteredWords)];
+    logger.info(`过滤结果: 输入${words.length}个单词，过滤出${complexWords.length}个复杂单词（难度>2）`);
     
-    logger.info(`单词过滤完成: 原始${words.length}个 -> 过滤后${uniqueWords.length}个`);
-    
-    return uniqueWords;
+    return complexWords;
   }
   
   /**

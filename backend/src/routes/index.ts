@@ -1,36 +1,32 @@
 import { Router } from 'express';
-import translationRoutes from './translationRoutes';
 import wordRoutes from './wordRoutes';
-import enhancedTranslationRoutes from './enhancedTranslation';
-import paragraphRoutes from './paragraphRoutes';
-import essayRoutes from './essayRoutes';
+import translationRoutes from './translationRoutes'; // 翻译路由
+import paragraphRoutes from './paragraphRoutes'; // 段落翻译路由
+// import essayRoutes from './essayRoutes'; // 文章翻译路由已移除
 // import aiWordRoutes from './aiWordRoutes'; // 旧的复杂路由，已禁用
 import simplifiedWordRoutes from './simplifiedWordRoutes'; // 新的简化路由
-import wordPreQueryRoutes from './wordPreQueryRoutes'; // 单词预查询路由
+// import wordPreQueryRoutes from './wordPreQueryRoutes'; // 单词预查询路由 - 已移除翻译功能
 import { testConnection, query } from '@/config/database';
 
 const router = Router();
 
-// 翻译相关路由
-router.use('/', translationRoutes);
-
-// 增强翻译相关路由 (新的分表存储和批处理翻译)
-router.use('/enhanced', enhancedTranslationRoutes);
-
 // 段落相关路由
 router.use('/', paragraphRoutes);
 
-// 文章处理路由
-router.use('/', essayRoutes);
+// 文章处理路由 - 翻译功能已移除
+// router.use('/', essayRoutes);
 
 // 单词相关路由
 router.use('/', wordRoutes);
 
+// 翻译相关路由
+router.use('/translate', translationRoutes);
+
 // AI单词难度判断路由 - 简化版本
 router.use('/ai-words', simplifiedWordRoutes);
 
-// 单词预查询路由 - 优化查词翻译流程
-router.use('/words', wordPreQueryRoutes);
+// 单词预查询路由 - 优化查词翻译流程 - 已移除翻译功能
+// router.use('/words', wordPreQueryRoutes);
 
 // 健康检查路由
 router.get('/health', (_req, res) => {
@@ -79,25 +75,30 @@ router.get('/info', (_req, res) => {
     version: '1.0.0',
     description: 'Backend API for Cloze Test Application',
     endpoints: {
-      translation: {
-        'POST /api/translate': '翻译文本',
-        'POST /api/translate/batch': '批量翻译',
-        'POST /api/translate/words': '批量单词翻译',
-        'GET /api/translate/history': '获取翻译历史',
-        'GET /api/translate/stats': '获取翻译统计',
-        'POST /api/translate/cache/clear': '清除翻译缓存'
-      },
-      enhanced: {
-        'POST /api/enhanced/paragraph': '增强段落翻译',
-        'POST /api/enhanced/words/batch': '批量单词翻译',
-        'GET /api/enhanced/history/passages': '段落翻译历史',
-        'GET /api/enhanced/history/words': '单词翻译历史',
-        'GET /api/enhanced/words/difficulty/:level': '根据难度查询单词',
-        'GET /api/enhanced/stats': '翻译统计信息',
-        'POST /api/enhanced/words/analyze': '单词难度分析'
-      },
+      // translation: { // 翻译功能已移除
+      //   'POST /api/translate': '翻译文本',
+      //   'POST /api/translate/batch': '批量翻译',
+      //   'POST /api/translate/words': '批量单词翻译',
+      //   'GET /api/translate/history': '获取翻译历史',
+      //   'GET /api/translate/stats': '获取翻译统计',
+      //   'POST /api/translate/cache/clear': '清除翻译缓存'
+      // },
+      // enhanced: { // 增强翻译功能已移除
+      //   'POST /api/enhanced/paragraph': '增强段落翻译',
+      //   'POST /api/enhanced/words/batch': '批量单词翻译',
+      //   'GET /api/enhanced/history/passages': '段落翻译历史',
+      //   'GET /api/enhanced/history/words': '单词翻译历史',
+      //   'GET /api/enhanced/words/difficulty/:level': '根据难度查询单词',
+      //   'GET /api/enhanced/stats': '翻译统计信息',
+      //   'POST /api/enhanced/words/analyze': '单词难度分析'
+      // },
       paragraphs: {
-        'POST /api/paragraphs/batch': '批量保存段落翻译'
+        'GET /api/paragraphs': '获取所有段落',
+        'GET /api/paragraphs/:id': '根据ID获取段落',
+        'POST /api/paragraphs': '创建新段落',
+        'PUT /api/paragraphs/:id': '更新段落',
+        'DELETE /api/paragraphs/:id': '删除段落',
+        'POST /api/paragraphs/batch': '批量保存段落'
       },
       words: {
         'GET /api/words': '获取单词列表',
@@ -112,7 +113,7 @@ router.get('/info', (_req, res) => {
         'POST /api/ai-words/process': 'AI单词难度判断',
         'POST /api/ai-words/batch-process': 'AI批量单词处理',
         'POST /api/ai-words/filter-complex': '过滤复杂单词',
-        'POST /api/ai-words/check-translation': '检查单词翻译需求',
+        // 'POST /api/ai-words/check-translation': '检查单词翻译需求', // 翻译功能已移除
         'GET /api/ai-words/config-status': '获取API配置状态'
       },
       system: {

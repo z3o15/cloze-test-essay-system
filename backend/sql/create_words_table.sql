@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS words (
     word VARCHAR(255) NOT NULL UNIQUE,
     pronunciation VARCHAR(500),
     definition TEXT,
-    translation TEXT,
+    meaning TEXT,
     part_of_speech VARCHAR(50),
     difficulty_level INTEGER DEFAULT 1 CHECK (difficulty_level >= 1 AND difficulty_level <= 10),
     frequency_rank INTEGER,
@@ -40,7 +40,7 @@ CREATE TRIGGER trigger_update_words_updated_at
     EXECUTE FUNCTION update_words_updated_at();
 
 -- 插入一些示例数据
-INSERT INTO words (word, pronunciation, definition, translation, part_of_speech, difficulty_level, frequency_rank, example_sentences, synonyms, antonyms) VALUES
+INSERT INTO words (word, pronunciation, definition, meaning, part_of_speech, difficulty_level, frequency_rank, example_sentences, synonyms, antonyms) VALUES
 ('hello', '/həˈloʊ/', 'Used as a greeting or to begin a phone conversation', '你好', 'interjection', 1, 100, ARRAY['Hello, how are you?', 'She said hello to everyone.'], ARRAY['hi', 'greetings'], ARRAY['goodbye', 'farewell']),
 ('world', '/wɜːrld/', 'The earth, together with all of its countries and peoples', '世界', 'noun', 2, 200, ARRAY['The world is a beautiful place.', 'He traveled around the world.'], ARRAY['earth', 'globe', 'planet'], ARRAY[]::text[]),
 ('reading', '/ˈriːdɪŋ/', 'The action or skill of reading written or printed matter silently or aloud', '阅读', 'noun', 3, 300, ARRAY['Reading is fundamental to learning.', 'She enjoys reading novels.'], ARRAY['perusal', 'study'], ARRAY['writing']),

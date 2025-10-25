@@ -19,25 +19,15 @@ declare namespace NodeJS {
     REDIS_PASSWORD?: string;
     REDIS_DB?: string;
     
-    // 缓存配置
-    CACHE_TTL_TRANSLATION?: string;
-    
     // JWT配置
     JWT_SECRET?: string;
     JWT_EXPIRES_IN?: string;
     
-    // 腾讯翻译API
-    TENCENT_APP_ID?: string;
-    TENCENT_APP_KEY?: string;
-    TENCENT_TRANSLATE_URL?: string;
-    
-    // 火山翻译API
+    // 火山AI配置
     VOLCANO_API_KEY?: string;
     VOLCANO_API_URL?: string;
-    
-    // 百度翻译API
-    BAIDU_APP_ID?: string;
-    BAIDU_APP_KEY?: string;
-    BAIDU_TRANSLATE_URL?: string;
+    VOLCANO_MODEL?: string;
+    VOLCANO_DAILY_TOKEN_LIMIT?: string;
+    VOLCANO_MAX_CONCURRENT?: string;
   }
 }

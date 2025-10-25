@@ -32,7 +32,7 @@ export default defineConfig(({ mode }) => {
     proxy: {
       // API代理配置
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8081',
         // 代理到后端Express服务器
         rewrite: (path) => path.replace(/^\/api/, '/api'),
         changeOrigin: true

@@ -11,13 +11,15 @@ export interface BaseEntity {
 export interface Word extends BaseEntity {
   word: string;
   pronunciation?: string;
-  translation: string;
+  meaning: string;
+  difficulty_level?: number;
+  part_of_speech?: string;
 }
 
 export interface WordCreateRequest {
   word: string;
   pronunciation?: string;
-  translation: string;
+  meaning: string;
 }
 
 export interface WordUpdateRequest extends Partial<WordCreateRequest> {}
@@ -46,19 +48,7 @@ export interface PaginatedResponse<T> {
   };
 }
 
-// 翻译相关类型（如果需要段落翻译功能）
-export interface TranslationRequest {
-  text: string;
-  source_lang?: string;
-  target_lang?: string;
-}
 
-export interface TranslationResponse {
-  original: string;
-  translated: string;
-  cached: boolean;
-  words?: Word[]; // 从段落中提取的单词
-}
 
 // 错误类型
 export interface ApiError {

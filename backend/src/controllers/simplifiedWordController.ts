@@ -49,10 +49,61 @@ export class SimplifiedWordController {
   }
 
   /**
-   * 检查单词是否需要显示翻译
+   * 增强版批量处理单词（包含翻译信息）
+   * POST /api/ai-words/batch-analyze
+   */
+  static async batchAnalyzeWords(req: Request, res: Response) {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          code: 'ERROR_001',
+          message: '参数验证失败',
+          errors: errors.array()
+        });
+      }
+
+      const { words } = req.body;
+      logger.info(`🔍 收到增强版批量分析请求: ${words.length} 个单词`);
+
+      const result = await SimplifiedWordService.batchAnalyzeWords(words);
+
+      res.json({
+        code: 'SUCCESS',
+        message: '批量分析完成',
+        data: {
+          words: result.words.map(word => ({
+            word: word.word,
+            translation: word.translation,
+            pronunciation: word.pronunciation || '未提供',
+            partOfSpeech: word.partOfSpeech || '未提供',
+            difficultyLevel: word.difficultyLevel,
+            isComplex: word.isComplex,
+            translations: word.translations || []
+          })),
+          stats: {
+            total: result.words.length,
+            complexCount: result.words.filter(w => w.isComplex).length,
+            simpleCount: result.words.filter(w => !w.isComplex).length
+          }
+        }
+      });
+
+    } catch (error) {
+      logger.error('增强版批量分析失败:', error);
+      res.status(500).json({
+        code: 'ERROR_500',
+        message: '服务器内部错误',
+        error: error instanceof Error ? error.message : '未知错误'
+      });
+    }
+  }
+
+  /**
+   * 检查单词是否需要显示智能提示
    * POST /api/ai-words/check-translation
    */
-  static async checkTranslationNeeded(req: Request, res: Response) {
+  static async checkDisplayNeeded(req: Request, res: Response) {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -64,22 +115,23 @@ export class SimplifiedWordController {
       }
 
       const { word } = req.body;
-      logger.info(`🔍 检查翻译需求: ${word}`);
+      logger.info(`🔍 检查智能提示需求: ${word}`);
 
-      const needsTranslation = await SimplifiedWordService.shouldShowTranslation(word);
+      const result = await SimplifiedWordService.checkDisplayNeeded(word);
+      const needsDisplay = result.data.needsDisplay;
 
       res.json({
         code: 'SUCCESS',
         message: '检查完成',
         data: {
           word,
-          needsTranslation,
-          reason: needsTranslation ? '难度等级 > 3' : '难度等级 ≤ 3'
+          needsDisplay,
+          reason: needsDisplay ? '难度等级 > 3' : '难度等级 ≤ 3'
         }
       });
 
     } catch (error) {
-      logger.error('检查翻译需求失败:', error);
+      logger.error('检查智能提示需求失败:', error);
       res.status(500).json({
         code: 'ERROR_500',
         message: '服务器内部错误',
@@ -142,7 +194,7 @@ export class SimplifiedWordController {
       const { word } = req.body;
       logger.info(`🔄 处理单个单词: ${word}`);
 
-      const result = await SimplifiedWordService.processWord(word);
+      const result = await SimplifiedWordService.processSingleWord(word);
 
       res.json({
         code: 'SUCCESS',
@@ -209,7 +261,7 @@ export const validateSingleWord = [
     .withMessage('word必须是非空字符串')
 ];
 
-export const validateCheckTranslation = [
+export const validateCheckDisplay = [
   body('word')
     .isString()
     .trim()

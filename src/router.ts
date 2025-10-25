@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Record from './views/Record.vue'
 import Display from './views/Display.vue'
 import Manage from './views/Manage.vue'
+import TestTranslation from './views/TestTranslation.vue'
 
 const routes = [
   {
@@ -30,6 +31,14 @@ const routes = [
     component: Manage,
     meta: {
       title: '作文管理'
+    }
+  },
+  {
+    path: '/test-translation',
+    name: 'test-translation',
+    component: TestTranslation,
+    meta: {
+      title: '翻译测试'
     }
   }
 ]

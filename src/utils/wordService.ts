@@ -1,11 +1,13 @@
-// 单词服务模块 - 简化版本，优先使用数据库，然后本地词典（移除段落-单词映射依赖）
-import { queryWordFromDatabase } from './translation'
+// 单词服务模块 - 简化版本，优先使用数据库，然后本地词典
+import { queryWordFromDatabase } from './databaseService'
 
 
 // 单词信息接口
 export interface WordInfo {
   phonetic: string
   definitions: string[]
+  difficultyLevel?: number  // 难度级别 (1-10)
+  partOfSpeech?: string     // 词性
 }
 
 // 分词结果接口
@@ -96,11 +98,8 @@ export const determineWordLevel = (word: string): 'basic' | 'intermediate' | 'ad
     return 'basic'
   }
   
-  if (word.length <= 6) {
-    return 'intermediate'
-  }
-  
-  return 'advanced'
+  // 非基础词汇默认为中等难度
+  return 'intermediate'
 }
 
 // 判断是否为高级词汇
@@ -110,7 +109,7 @@ export const isAdvancedWord = (word: string): boolean => {
 
 
 
-// 内部查询函数 - 优先从数据库查询，然后本地词典
+// 内部查询函数 - 优先从数据库查询，然后本地词典，最后AI分析并存储
 const queryWordInternal = async (word: string, contextText?: string): Promise<WordInfo | null> => {
   const normalizedWord = word.toLowerCase().trim()
   
@@ -124,20 +123,69 @@ const queryWordInternal = async (word: string, contextText?: string): Promise<Wo
     return localDictionary[normalizedWord]
   }
   
-  // 3. 优先从数据库查询已有翻译
-  try {
-    const databaseResult = await queryWordFromDatabase(normalizedWord)
-    if (databaseResult) {
-      // 缓存结果
-      wordCache.set(normalizedWord, databaseResult)
-      return databaseResult
-    }
-  } catch (error) {
-    console.warn(`数据库查询单词 "${normalizedWord}" 失败:`, error)
+  // 3. 检查是否有正在进行的请求
+  if (pendingRequests.has(normalizedWord)) {
+    return await pendingRequests.get(normalizedWord)!
   }
   
-  // 4. 如果都没有找到，返回null
-  return null
+  // 4. 数据库查询 + AI分析存储
+  const queryPromise = (async () => {
+    try {
+      // 先查询数据库
+      const databaseResult = await queryWordFromDatabase(normalizedWord)
+      if (databaseResult) {
+        // 缓存结果
+        wordCache.set(normalizedWord, databaseResult)
+        return databaseResult
+      }
+      
+      // 数据库没有，调用AI分析并自动存储
+      console.log(`🤖 单词 "${normalizedWord}" 不在数据库中，调用AI分析...`)
+      
+      // 动态导入httpClient和API_URLS避免循环依赖
+      const { default: httpClient } = await import('./httpClient')
+      const { API_URLS } = await import('../config/api')
+      
+      // 调用AI单词处理接口
+      const aiResponse = await httpClient.post(API_URLS.aiWords.processSingle(), {
+        word: normalizedWord
+      })
+      
+      if (aiResponse.data?.code === 'SUCCESS' && aiResponse.data?.data) {
+        const aiResult = aiResponse.data.data
+        
+        // 转换为WordInfo格式
+        const wordInfo: WordInfo = {
+          phonetic: aiResult.pronunciation || '',
+          definitions: aiResult.translations || [aiResult.translation || '暂无释义'],
+          difficultyLevel: aiResult.difficultyLevel || aiResult.difficulty_level,
+          partOfSpeech: aiResult.partOfSpeech || aiResult.part_of_speech
+        }
+        
+        // 缓存结果
+        wordCache.set(normalizedWord, wordInfo)
+        console.log(`✅ 单词 "${normalizedWord}" AI分析完成并已存储到数据库`)
+        
+        return wordInfo
+      }
+    } catch (error) {
+      console.warn(`查询单词 "${normalizedWord}" 失败:`, error)
+    }
+    
+    // 如果都没有找到，返回null
+    return null
+  })()
+  
+  // 缓存请求Promise
+  pendingRequests.set(normalizedWord, queryPromise)
+  
+  try {
+    const result = await queryPromise
+    return result
+  } finally {
+    // 清理pending请求
+    pendingRequests.delete(normalizedWord)
+  }
 }
 
 // 主要的单词查询函数
@@ -193,4 +241,86 @@ export const getWordCacheSize = (): number => {
 export const addToLocalDictionary = (word: string, info: WordInfo): void => {
   const normalizedWord = word.toLowerCase().trim()
   localDictionary[normalizedWord] = info
+}
+
+// 数据对比机制：比较数据库查询结果与本地词典数据
+export const compareWordData = (word: string, databaseResult: WordInfo | null, localResult: WordInfo | null): {
+  source: 'database' | 'local' | 'both' | 'none'
+  hasDifficultyLevel: boolean
+  differences: string[]
+} => {
+  const differences: string[] = []
+  
+  if (databaseResult && localResult) {
+    // 比较音标
+    if (databaseResult.phonetic !== localResult.phonetic) {
+      differences.push(`音标不同: 数据库[${databaseResult.phonetic}] vs 本地[${localResult.phonetic}]`)
+    }
+    
+    // 比较释义
+    const dbDefs = databaseResult.definitions.join(', ')
+    const localDefs = localResult.definitions.join(', ')
+    if (dbDefs !== localDefs) {
+      differences.push(`释义不同: 数据库[${dbDefs}] vs 本地[${localDefs}]`)
+    }
+    
+    return {
+      source: 'both',
+      hasDifficultyLevel: !!databaseResult.difficultyLevel,
+      differences
+    }
+  } else if (databaseResult) {
+    return {
+      source: 'database',
+      hasDifficultyLevel: !!databaseResult.difficultyLevel,
+      differences: []
+    }
+  } else if (localResult) {
+    return {
+      source: 'local',
+      hasDifficultyLevel: false,
+      differences: []
+    }
+  } else {
+    return {
+      source: 'none',
+      hasDifficultyLevel: false,
+      differences: []
+    }
+  }
+}
+
+// 增强的单词查询函数，包含数据对比
+export const queryWordWithComparison = async (word: string, contextText?: string): Promise<{
+  result: WordInfo | null
+  comparison: ReturnType<typeof compareWordData>
+}> => {
+  const normalizedWord = word.toLowerCase().trim()
+  
+  // 获取本地词典结果
+  const localResult = localDictionary[normalizedWord] || null
+  
+  // 获取数据库结果
+  let databaseResult: WordInfo | null = null
+  try {
+    databaseResult = await queryWordFromDatabase(normalizedWord)
+  } catch (error) {
+    console.warn(`数据库查询单词 "${normalizedWord}" 失败:`, error)
+  }
+  
+  // 进行数据对比
+  const comparison = compareWordData(normalizedWord, databaseResult, localResult)
+  
+  // 优先返回数据库结果（因为包含难度级别），其次是本地结果
+  const result = databaseResult || localResult
+  
+  // 如果有结果，缓存它
+  if (result) {
+    wordCache.set(normalizedWord, result)
+  }
+  
+  return {
+    result,
+    comparison
+  }
 }

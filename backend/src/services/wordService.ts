@@ -260,12 +260,12 @@ export class WordService {
   }
 
   /**
-   * 查找难度级别≥2的单词
-   * 从给定的单词列表中，返回数据库中存在且难度级别≥2的单词
+   * 查找难度级别≥3的单词
+   * 从给定的单词列表中，返回数据库中存在且难度级别≥3的单词
    */
   async findDifficultWords(words: string[]): Promise<Word[]> {
     try {
-      logger.info('查找难度级别≥2的单词:', { wordCount: words.length });
+      logger.info('查找难度级别≥3的单词:', { wordCount: words.length });
 
       if (!words || words.length === 0) {
         return [];
@@ -283,14 +283,14 @@ export class WordService {
 
       const difficultWords = await this.wordRepository.findDifficultWords(normalizedWords);
       
-      logger.info('找到难度级别≥2的单词:', { 
+      logger.info('找到难度级别≥3的单词:', { 
         inputCount: normalizedWords.length, 
         foundCount: difficultWords.length 
       });
       
       return difficultWords;
     } catch (error) {
-      logger.error('查找难度级别≥2的单词失败:', { 
+      logger.error('查找难度级别≥3的单词失败:', { 
         words, 
         error: error instanceof Error ? error.message : error 
       });

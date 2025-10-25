@@ -3,7 +3,7 @@ import {
   SimplifiedWordController,
   validateBatchProcess,
   validateSingleWord,
-  validateCheckTranslation
+  validateCheckDisplay
 } from '@/controllers/simplifiedWordController';
 
 /**
@@ -15,8 +15,8 @@ const router = Router();
 // 主要接口：批量处理单词（返回难度 > 3 的单词）
 router.post('/batch-process', validateBatchProcess, SimplifiedWordController.batchProcessWords);
 
-// 检查单词是否需要显示翻译
-router.post('/check-translation', validateCheckTranslation, SimplifiedWordController.checkTranslationNeeded);
+// 检查单词是否需要显示智能提示
+router.post('/check-display', validateCheckDisplay, SimplifiedWordController.checkDisplayNeeded);
 
 // 过滤复杂单词
 router.post('/filter-complex', validateBatchProcess, SimplifiedWordController.filterComplexWords);

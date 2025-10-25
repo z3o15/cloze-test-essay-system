@@ -83,7 +83,7 @@ const createStore = (): Store => {
     // 保存到localStorage
     saveEssays()
     
-    // 异步处理作文：调用后端API翻译段落并提取单词保存到数据库
+    // 异步处理作文：调用后端API处理段落并提取单词保存到数据库
     // 这个过程不会阻塞用户界面
     processEssayAsync(essay.content, essay.title).catch(error => {
       console.error('作文处理失败:', error)

@@ -15,8 +15,6 @@ const VALID_WORD_PATTERNS = [
 const INVALID_WORD_PATTERNS = [
   /\d/, // 包含数字
   /[^a-zA-Z'']/, // 包含非字母和撇号的字符
-  /^.{1,2}$/, // 长度小于3的单词（除了常见的短单词）
-  /^.{20,}$/, // 长度超过20的单词（可能是连写错误）
   /(.)\1{3,}/, // 连续重复字母超过3次
   /^[bcdfghjklmnpqrstvwxyz]{5,}$/i, // 连续5个或以上辅音字母
   /^[aeiou]{4,}$/i, // 连续4个或以上元音字母
@@ -74,10 +72,6 @@ export const isValidWord = (word: string): boolean => {
   // 检查是否匹配无效模式
   const matchesInvalidPattern = INVALID_WORD_PATTERNS.some(pattern => pattern.test(trimmedWord))
   if (matchesInvalidPattern) {
-    // 短单词白名单例外
-    if (trimmedWord.length <= 2 && SHORT_WORD_WHITELIST.has(trimmedWord)) {
-      return true
-    }
     return false
   }
 
@@ -122,7 +116,7 @@ export const splitCompoundWord = (word: string): string[] => {
   for (const pattern of COMPOUND_WORD_PATTERNS) {
     const match = trimmedWord.match(pattern)
     if (match) {
-      const parts = [match[1], match[2]].filter((part): part is string => Boolean(part && part.length >= 2))
+      const parts = [match[1], match[2]].filter((part): part is string => Boolean(part))
       if (parts.length === 2) {
         return parts
       }
@@ -178,22 +172,13 @@ export const extractValidWords = (text: string): string[] => {
 }
 
 /**
- * 检查单词是否为常见的基础词汇
+ * 检查单词是否为常见的基础词汇 (已禁用过滤，始终返回false)
  * @param word 要检查的单词
- * @returns 是否为基础词汇
+ * @returns 是否为基础词汇 (始终返回false)
  */
 export const isBasicWord = (word: string): boolean => {
-  const basicWords = new Set([
-    'the', 'and', 'is', 'in', 'to', 'of', 'a', 'that', 'it', 'with', 'for', 'as', 
-    'was', 'on', 'are', 'you', 'this', 'be', 'at', 'by', 'not', 'or', 'have', 
-    'from', 'they', 'we', 'say', 'her', 'she', 'an', 'each', 'which', 'do', 
-    'their', 'time', 'will', 'about', 'if', 'up', 'out', 'many', 'then', 'them', 
-    'these', 'so', 'some', 'what', 'see', 'him', 'two', 'more', 'go', 'no', 'way', 
-    'could', 'my', 'than', 'first', 'been', 'call', 'who', 'its', 'now', 'find', 
-    'long', 'down', 'day', 'did', 'get', 'come', 'made', 'may', 'part'
-  ])
-  
-  return basicWords.has(word.toLowerCase().trim())
+  // 已禁用基础词汇过滤 - 所有单词都不被认为是基础词汇
+  return false;
 }
 
 /**
@@ -209,8 +194,6 @@ export const logInvalidWords = (invalidWords: string[], context: string = ''): v
     invalidWords.forEach(word => {
       if (isPossibleSpellingError(word)) {
         console.warn(`  - "${word}": 可能的拼写错误`)
-      } else if (word.length > 20) {
-        console.warn(`  - "${word}": 单词过长，可能是连写`)
       } else if (/\d/.test(word)) {
         console.warn(`  - "${word}": 包含数字`)
       } else {
