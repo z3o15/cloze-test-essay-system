@@ -9,12 +9,12 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 
-import { errorHandler } from '@/middleware/errorHandler';
-import { notFoundHandler } from '@/middleware/notFoundHandler';
-import { logger } from '@/utils/logger';
-import { connectRedis, testRedisConnection } from '@/config/redis';
-import { testConnection } from '@/config/database';
-import routes from '@/routes';
+import { errorHandler } from './middleware/errorHandler';
+import { notFoundHandler } from './middleware/notFoundHandler';
+import { logger } from './utils/logger';
+import { connectRedis, testRedisConnection } from './config/redis';
+import { testConnection } from './config/database';
+import routes from './routes';
 
 // 调试环境变量加载
 console.log('Environment variables loaded:');

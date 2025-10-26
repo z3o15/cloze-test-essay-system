@@ -1,6 +1,5 @@
 // 后端文章处理服务 - 调用后端API进行文章处理
 import httpClient from './httpClient'
-import { API_URLS } from '../config/api'
 
 // 后端API响应接口
 interface BackendEssayProcessResponse {
@@ -94,7 +93,7 @@ export const processEssayAsync = async (content: string, title: string = '未命
     if (!result.success) {
       console.error('后端文章处理失败:', result.errors)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('异步处理文章失败:', error)
   }
 }

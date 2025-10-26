@@ -1,0 +1,195 @@
+:root {
+  /* 移动端基础变量 */
+  --color-primary: #007AFF;
+  --color-primary-600: #0066CC;
+  --color-primary-hover: #0056B3;
+  --color-primary-bg: rgba(0, 122, 255, 0.15);
+  --color-primary-shadow: rgba(0, 122, 255, 0.3);
+  --color-text: #1C1C1E;
+  --color-text-secondary: #8E8E93;
+  --color-text-light: #86868B;
+  --color-border: #E5E5EA;
+  --color-border-hover: #E5E5EA;
+  --color-background: #ffffff;
+  --color-bg: #ffffff;
+  --color-bg-soft: #F2F2F7;
+  --color-bg-elevated: #ffffff;
+  --color-popup-bg: #ffffff;
+  --color-popup-overlay: rgba(0, 0, 0, 0.5);
+  --color-success: #7ACC4D;
+  --color-success-bg: rgba(122, 204, 77, 0.1);
+  --color-error: #FF453A;
+  --color-error-600: #FF3B30;
+  --color-error-bg: rgba(255, 69, 58, 0.1);
+  --color-danger: #FF453A;
+  --color-warning: #FF9500;
+  --color-warning-bg: rgba(255, 149, 0, 0.1);
+  --color-info: #5856D6;
+  --color-info-bg: rgba(88, 86, 214, 0.1);
+  --radius-md: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 20px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 10px 50px rgba(0, 0, 0, 0.15);
+  --safe-top: env(safe-area-inset-top);
+  --safe-right: env(safe-area-inset-right);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-left: env(safe-area-inset-left);
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg-soft);
+  color: var(--color-text);
+  -webkit-tap-highlight-color: rgba(0,0,0,0);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* 链接 */
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+a:hover { opacity: .9; }
+
+/* 可触控尺寸与焦点可见性 */
+button, input, textarea, select {
+  font-family: inherit;
+  font-size: 16px; /* 防 iOS 触发缩放 */
+}
+
+button {
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s ease;
+}
+
+/* 容器通用约束 */
+#app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 20px 12px 20px; /* 简化padding，避免依赖safe-area变量 */
+  background: var(--color-bg); /* 确保在浅色模式下也有背景色 */
+  min-height: 100vh;
+  display: block; /* 确保元素正确显示 */
+}
+
+/* 媒体通用规则 */
+img, video { max-width: 100%; height: auto; display: block; }
+
+/* 图片懒加载的通用占位样式，可在组件中添加 loading="lazy" */
+.img-fluid { width: 100%; height: auto; display: block; border-radius: var(--radius-sm); }
+
+/* 深色模式 - 系统偏好 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-primary: #0A84FF;
+    --color-primary-600: #0066CC;
+    --color-primary-hover: #0056B3;
+    --color-primary-bg: rgba(10, 132, 255, 0.15);
+    --color-primary-shadow: rgba(10, 132, 255, 0.3);
+    --color-text: #FFFFFF;
+    --color-text-secondary: #8E8E93;
+    --color-text-light: #86868B;
+    --color-border: #38383A;
+    --color-border-hover: #48484A;
+    --color-background: #000000;
+    --color-bg: #000000;
+    --color-bg-soft: #1C1C1E;
+    --color-bg-elevated: #2C2C2E;
+    --color-popup-bg: #2C2C2E;
+    --color-popup-overlay: rgba(0, 0, 0, 0.7);
+    --color-success: #32D74B;
+    --color-success-bg: rgba(50, 215, 75, 0.15);
+    --color-error: #FF453A;
+    --color-error-600: #FF3B30;
+    --color-error-bg: rgba(255, 69, 58, 0.15);
+    --color-warning: #FF9F0A;
+    --color-warning-bg: rgba(255, 159, 10, 0.15);
+    --color-info: #5E5CE6;
+    --color-info-bg: rgba(94, 92, 230, 0.15);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+    --shadow-lg: 0 10px 50px rgba(0, 0, 0, 0.8);
+  }
+}
+
+/* 深色模式 - 手动设置 */
+[data-theme="dark"] {
+  --color-primary: #0A84FF;
+  --color-primary-600: #0066CC;
+  --color-primary-hover: #0056B3;
+  --color-primary-bg: rgba(10, 132, 255, 0.15);
+  --color-primary-shadow: rgba(10, 132, 255, 0.3);
+  --color-text: #FFFFFF;
+  --color-text-secondary: #8E8E93;
+  --color-text-light: #86868B;
+  --color-border: #38383A;
+  --color-border-hover: #48484A;
+  --color-background: #000000;
+  --color-bg: #000000;
+  --color-bg-soft: #1C1C1E;
+  --color-bg-elevated: #2C2C2E;
+  --color-popup-bg: #2C2C2E;
+  --color-popup-overlay: rgba(0, 0, 0, 0.7);
+  --color-success: #32D74B;
+  --color-success-bg: rgba(50, 215, 75, 0.15);
+  --color-error: #FF453A;
+  --color-error-600: #FF3B30;
+  --color-error-bg: rgba(255, 69, 58, 0.15);
+  --color-warning: #FF9F0A;
+  --color-warning-bg: rgba(255, 159, 10, 0.15);
+  --color-info: #5E5CE6;
+  --color-info-bg: rgba(94, 92, 230, 0.15);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+  --shadow-lg: 0 10px 50px rgba(0, 0, 0, 0.8);
+}
+
+/* 浅色模式 - 手动设置 */
+[data-theme="light"] {
+  --color-primary: #007AFF;
+  --color-primary-600: #0066CC;
+  --color-primary-hover: #0056B3;
+  --color-primary-bg: rgba(0, 122, 255, 0.15);
+  --color-primary-shadow: rgba(0, 122, 255, 0.3);
+  --color-text: #1C1C1E;
+  --color-text-secondary: #8E8E93;
+  --color-text-light: #86868B;
+  --color-border: #E5E5EA;
+  --color-border-hover: #E5E5EA;
+  --color-background: #ffffff;
+  --color-bg: #ffffff;
+  --color-bg-soft: #F2F2F7;
+  --color-bg-elevated: #ffffff;
+  --color-popup-bg: #ffffff;
+  --color-popup-overlay: rgba(0, 0, 0, 0.5);
+  --color-success: #7ACC4D;
+  --color-success-bg: rgba(122, 204, 77, 0.1);
+  --color-error: #FF453A;
+  --color-error-600: #FF3B30;
+  --color-error-bg: rgba(255, 69, 58, 0.1);
+  --color-warning: #FF9500;
+  --color-warning-bg: rgba(255, 149, 0, 0.1);
+  --color-info: #5856D6;
+  --color-info-bg: rgba(88, 86, 214, 0.1);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 10px 50px rgba(0, 0, 0, 0.15);
+}

@@ -120,7 +120,7 @@ const testParagraphTranslation = async () => {
     paragraphTranslation.value = result.translated
   } catch (error) {
     console.error('❌ 段落翻译失败:', error)
-    paragraphError.value = error.message || '翻译失败'
+    paragraphError.value = (error as Error).message || '翻译失败'
   }
 }
 
@@ -131,12 +131,12 @@ const testWordTranslation = async () => {
   
   try {
     console.log('🚀 开始测试单词翻译...')
-    const result = await TranslationService.translate(testWord.value)
+    const result = await TranslationService.translate({ text: testWord.value })
     console.log('✅ 单词翻译成功:', result)
     wordTranslation.value = result.translated
   } catch (error) {
     console.error('❌ 单词翻译失败:', error)
-    wordError.value = error.message || '翻译失败'
+    wordError.value = (error as Error).message || '翻译失败'
   }
 }
 
@@ -155,7 +155,7 @@ const testBatchWords = async () => {
     batchResult.value = result
   } catch (error) {
     console.error('❌ 批量分析失败:', error)
-    batchError.value = error.message || '分析失败'
+    batchError.value = (error as Error).message || '分析失败'
   }
 }
 
@@ -170,7 +170,7 @@ const testAPIConnection = async () => {
     apiStatus.value = '连接成功'
   } catch (error) {
     console.error('❌ API连接失败:', error)
-    apiStatus.value = `连接失败: ${error.message}`
+    apiStatus.value = `连接失败: ${(error as Error).message}`
   }
 }
 </script>

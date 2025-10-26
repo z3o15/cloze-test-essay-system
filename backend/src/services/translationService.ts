@@ -1,8 +1,8 @@
 import axios from 'axios';
 import CryptoJS from 'crypto-js';
-import { logger } from '@/utils/logger';
-import { TranslationRepository } from '@/repositories/translationRepository';
-import type { TranslationResponse } from '@/models/types';
+import { logger } from '../utils/logger';
+import { TranslationRepository } from '../repositories/translationRepository';
+import type { TranslationResponse } from '../models/types';
 
 export class TranslationService {
   private translationRepo: TranslationRepository;
@@ -30,6 +30,8 @@ export class TranslationService {
         return {
           original: text,
           translated: cached.translated_text,
+          source_language: sourceLang,
+          target_language: targetLang,
           cached: true,
           service
         };
@@ -68,6 +70,8 @@ export class TranslationService {
       return {
         original: text,
         translated: translationResult,
+        source_language: sourceLang,
+        target_language: targetLang,
         cached: false,
         service
       };
@@ -124,7 +128,7 @@ export class TranslationService {
   /**
    * 使用腾讯API翻译（备用）
    */
-  private async translateWithTencent(text: string, sourceLang: string, targetLang: string): Promise<string> {
+  private async translateWithTencent(_text: string, _sourceLang: string, _targetLang: string): Promise<string> {
     // 腾讯翻译实现（如果需要的话）
     throw new Error('腾讯翻译服务暂未实现');
   }
@@ -183,9 +187,10 @@ export class TranslationService {
         results.push({
           original: text,
           translated: text, // 翻译失败时返回原文
+          source_language: sourceLang,
+          target_language: targetLang,
           cached: false,
-          service,
-          error: error instanceof Error ? error.message : '翻译失败'
+          service
         });
       }
     }

@@ -1,0 +1,134 @@
+services:
+  # PostgreSQL数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: cloze_test_postgres
+    environment:
+      POSTGRES_DB: cloze_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 142152Qa@
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - cloze_test_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cloze_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: cloze_test_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - cloze_test_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端API服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cloze_test_backend
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: cloze_test
+      DB_USER: postgres
+      DB_PASSWORD: 142152Qa@
+      DB_SSL: false
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+      # 翻译API配置（需要在.env文件中设置）
+      TENCENT_APP_ID: ${TENCENT_APP_ID}
+      TENCENT_APP_KEY: ${TENCENT_APP_KEY}
+      TENCENT_TRANSLATE_URL: ${TENCENT_TRANSLATE_URL}
+      VOLCANO_API_KEY: ${VOLCANO_API_KEY}
+      VOLCANO_API_URL: ${VOLCANO_API_URL}
+      # 其他配置
+      JWT_SECRET: ${JWT_SECRET:-your_jwt_secret_here}
+      API_RATE_LIMIT: 100
+      LOG_LEVEL: info
+      CACHE_TTL_TRANSLATION: 86400
+      CACHE_TTL_WORD: 604800
+      CACHE_TTL_SESSION: 1800
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend/logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cloze_test_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 前端服务（生产环境）
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: cloze_test_frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8080/api
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - cloze_test_network
+    restart: unless-stopped
+
+  # Nginx反向代理（可选）
+  nginx:
+    image: nginx:alpine
+    container_name: cloze_test_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - cloze_test_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  cloze_test_network:
+    driver: bridge

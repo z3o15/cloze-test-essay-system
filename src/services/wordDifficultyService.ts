@@ -1,7 +1,6 @@
 import httpClient from '../utils/httpClient'
 import { API_URLS } from '../config/api'
-import type { WordDifficultyAnalysisResponse, WordDifficultyLevel } from '../types/wordDifficulty'
-import { isBasicWord } from '../utils/wordValidator'
+import type { WordDifficultyAnalysisResponse } from '../types/wordDifficulty'
 
 /**
  * 单词难度服务
@@ -52,7 +51,7 @@ export class WordDifficultyService {
           if (i < batches.length - 1) {
             await new Promise(resolve => setTimeout(resolve, 1000)); // 增加到1秒延迟
           }
-        } catch (error) {
+        } catch (error: any) {
           console.error(`❌ [分批处理] 第 ${i + 1} 批次处理失败:`, error);
           
           // 尝试重试失败的批次（减少批次大小）
@@ -69,7 +68,7 @@ export class WordDifficultyService {
                   await new Promise(resolve => setTimeout(resolve, 500)); // 短暂延迟
                   const singleResult = await this.processSingleBatch(smallBatch);
                   retryResults.push(singleResult);
-                } catch (singleError) {
+                } catch (singleError: any) {
                   console.warn(`⚠️ [重试失败] 单词 "${smallBatch[0]}" 重试失败:`, singleError);
                   // 为失败的单词创建默认结果
                   retryResults.push({
@@ -95,7 +94,7 @@ export class WordDifficultyService {
               // 合并重试结果
               retryResult = this.mergeBatchResults(retryResults, batches[i].length);
               console.log(`✅ [重试成功] 批次重试完成，成功处理 ${retryResult.data.total_words} 个单词`);
-            } catch (retryError) {
+            } catch (retryError: any) {
               console.error(`❌ [重试失败] 批次重试完全失败:`, retryError);
             }
           }
@@ -183,9 +182,7 @@ export class WordDifficultyService {
       
       // 调用简化的批量处理接口
       const response = await httpClient.post(apiUrl, requestData, {
-        timeout: 60000, // 增加到60秒，与API配置保持一致
-        retry: 2, // 增加重试次数到2次
-        retryDelay: 3000 // 增加重试间隔到3秒
+        timeout: 60000 // 增加到60秒，与API配置保持一致
       });
       
       console.log(`📥 [API响应] 状态码:`, response.status);
@@ -265,18 +262,7 @@ export class WordDifficultyService {
     }
   }
 
-  /**
-   * 带延迟的单批次处理
-   * @param words 单词数组
-   * @param delay 延迟时间（毫秒）
-   * @returns 单词难度分析结果
-   */
-  private static async processSingleBatchWithDelay(words: string[], delay: number): Promise<WordDifficultyAnalysisResponse> {
-    if (delay > 0) {
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-    return await this.processSingleBatch(words);
-  }
+
 
   /**
    * 合并多个批次的结果
@@ -290,7 +276,7 @@ export class WordDifficultyService {
     let totalComplexCount = 0;
     
     // 合并所有批次的结果
-    batchResults.forEach(result => {
+    batchResults.forEach((result: any) => {
       if (result.code === 'SUCCESS' && result.data) {
         allAnalysis.push(...result.data.analysis);
         allComplexWords.push(...result.data.complex_words);
@@ -322,9 +308,7 @@ export class WordDifficultyService {
       const response = await httpClient.post(API_URLS.aiWords.filterComplex(), {
         words
       }, {
-        timeout: 20000,
-        retry: 1,
-        retryDelay: 2000
+        timeout: 20000
       });
       
       // 从响应中提取复杂单词列表
@@ -357,7 +341,7 @@ export class WordDifficultyService {
       }
       
       return complexWords;
-    } catch (error) {
+    } catch (error: any) {
       console.warn('⚠️ AI过滤失败，跳过过滤显示所有单词:', error);
       
       // API失败时跳过过滤，返回所有单词
@@ -377,9 +361,7 @@ export class WordDifficultyService {
       const response = await httpClient.post(API_URLS.aiWords.checkDisplay(), {
         word: word.toLowerCase().trim()
       }, {
-        timeout: 15000, // 延长超时时间到15秒
-        retry: 2, // 重试2次
-        retryDelay: 1000 // 重试间隔1秒
+        timeout: 15000 // 延长超时时间到15秒
       });
       
       const needsDisplay = response.data.data.needsDisplay || false;
@@ -396,7 +378,7 @@ export class WordDifficultyService {
       
       // 网络错误时返回true，确保用户能看到智能提示
       if (error.code === 'ECONNABORTED' || error.code === 'NETWORK_ERROR') {
-        logger.warn(`⚠️ 网络超时，默认显示智能提示: ${word}`);
+        console.warn(`⚠️ 网络超时，默认显示智能提示: ${word}`);
         return true;
       }
       
@@ -416,9 +398,7 @@ export class WordDifficultyService {
       const response = await httpClient.post(API_URLS.words.difficult(), {
         words
       }, {
-        timeout: 10000,
-        retry: 1,
-        retryDelay: 1000
+        timeout: 10000
       });
       
       // 正确提取数据：response.data.data 才是实际的单词数组
@@ -447,19 +427,5 @@ export class WordDifficultyService {
    * @param level 难度等级
    * @returns 描述文本
    */
-  private static getDifficultyDescription(level: number): string {
-    const descriptions = {
-      1: '最简单',
-      2: '简单', 
-      3: '基础',
-      4: '中等',
-      5: '高级',
-      6: '专家级',
-      7: '非常高级',
-      8: '学术级',
-      9: '专业级',
-      10: '罕见'
-    };
-    return descriptions[level as keyof typeof descriptions] || '未知';
-  }
+
 }
